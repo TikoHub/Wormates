@@ -319,10 +319,10 @@ class PersonalReaderSettings(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='reader_settings')
     theme = models.CharField(max_length=10, choices=THEME_CHOICES, default='sepia')
     font_size = models.IntegerField(default=1)
-    line_height = models.IntegerField(default=1)
-    text_position = models.IntegerField(default=1)
-    font_weight = models.IntegerField(default=1)
-    font = models.IntegerField(default=1)
+    line_height = models.IntegerField(default=1)  # Процентное значение, например, 150%
+    text_position = models.IntegerField(default=1)  # Может представлять положение прокрутки или номер страницы
+    font_weight = models.IntegerField(default=1)  # Значения от 100 до 900
+    font = models.IntegerField(default=1)  # Или IntegerField, если шрифты кодируются числами
 
     def __str__(self):
         return f"{self.user.username}'s Reader Settings"

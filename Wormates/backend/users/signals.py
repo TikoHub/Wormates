@@ -52,6 +52,7 @@ def create_social_username(request, sociallogin, **kwargs):
     user.username = unique_username
     user.save()
 
+
 @receiver(post_save, sender=User)
 def create_reader_settings(sender, instance, created, **kwargs):
     if created:

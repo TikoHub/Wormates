@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import Profile, FollowersCount, Library, Achievement, WebPageSettings, Wallet, PurchasedBook, Notification, UsersNotificationSettings, PersonalReaderSettings
+from .models import Profile, FollowersCount, Library, Achievement, WebPageSettings, Wallet, PurchasedBook, Notification, \
+    UsersNotificationSettings, PersonalReaderSettings
 
 admin.site.register(Profile)
 admin.site.register(FollowersCount)
@@ -10,6 +11,7 @@ admin.site.register(Wallet)
 admin.site.register(PurchasedBook)
 admin.site.register(Notification)
 admin.site.register(UsersNotificationSettings)
+
 
 @admin.register(PersonalReaderSettings)
 class PersonalReaderSettingsAdmin(admin.ModelAdmin):

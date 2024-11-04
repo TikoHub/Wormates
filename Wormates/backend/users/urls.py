@@ -3,10 +3,10 @@ from . import views
 from .views import (CustomUserLoginView, ProfileAPIView, RegisterView, PrivacySettingsAPIView, \
                     PasswordChangeRequestView, PasswordChangeVerificationView, NotificationSettingsAPIView, \
                     AddToLibraryView, WalletBalanceView, DepositView, TransactionHistoryView,
-                    UpdateNotificationSettingsView, \
+                    UpdateNotificationSettingsView, PersonalReaderSettingsView,  \
                     UserNotificationsAPIView, FollowView, UserNotificationSettingsView, TokenCheckView, \
-                    VerifyEmailCodeView, ResendVerificationCodeView, UserProfileSettingsAPIView,
-                    PersonalReaderSettingsView
+                    VerifyEmailCodeView, ResendVerificationCodeView, UserProfileSettingsAPIView, UpdateReadingProgressView, \
+
                     )
     #VerifyRegistrationView WebPageSettingsAPIView UserUpdateAPIView
 from django.views.generic import TemplateView
@@ -55,6 +55,9 @@ urlpatterns = [
         path('<str:username>/reviews/', views.get_user_reviews, name='user-reviews'), # Отзывы пользователя
         path('<str:username>/description/', views.update_profile_description, name='api_update_profile_description'), # Описание пользователя
 
+        path('settings/reader_settings/', PersonalReaderSettingsView.as_view(), name='reader-settings'),
+        path('api/reading_progress/<int:book_id>/', UpdateReadingProgressView.as_view(), name='update-reading-progress'),
+
        # path('settings/web_page_settings/', WebPageSettingsAPIView.as_view(), name='api_web_settings'), # Настройки пользователя
        # path('settings/user_settings/', UserUpdateAPIView.as_view(), name='test-user'),
         path('settings/web_page_settings/', UserProfileSettingsAPIView.as_view(), name='user_profile_settings'),
@@ -68,8 +71,6 @@ urlpatterns = [
         path('settings/notifications/news/', UserNotificationSettingsView.as_view(), name='user_notification_news_settings'),
 
         path('<str:username>/notifications/', UserNotificationsAPIView.as_view(), name='user-notifications-api'), # Уведомления пользователя (список уведов)
-
-        path('reader_settings/', PersonalReaderSettingsView.as_view(), name='reader-settings'),
 
 
         path('wallet/deposit/', DepositView.as_view(), name='wallet-deposit'), # Пополнить кошелек

@@ -30,14 +30,15 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_decode
 
 from .models import Achievement, Notification, Conversation, Message, Profile,NotificationSetting, \
-    WebPageSettings, Library, EmailVerification, Wallet, StripeCustomer, \
-    UsersNotificationSettings, VerificationCode, PersonalReaderSettings, WalletTransaction
+    WebPageSettings, Library, EmailVerification, Wallet, StripeCustomer, PersonalReaderSettings, \
+    UsersNotificationSettings, VerificationCode, WalletTransaction, ReadingProgress
 
 from .serializers import CustomUserRegistrationSerializer, UserSerializer, CustomUserLoginSerializer, ProfileSerializer, \
     LibraryBookSerializer, AuthoredBookSerializer, ParentCommentSerializer, CommentSerializer, ReviewSerializer, \
     UserProfileSettingsSerializer, NotificationSerializer, PrivacySettingsSerializer, PasswordChangeRequestSerializer, \
     NotificationSerializer, NotificationSettingSerializer, UserNotificationSettingsSerializer, ProfileDescriptionSerializer, \
-    MyTokenObtainPairSerializer, FollowSerializer, PersonalReaderSettingsSerializer, WalletTransactionSerializer, SeriesSerializer
+    MyTokenObtainPairSerializer, FollowSerializer, WalletTransactionSerializer, SeriesSerializer, PersonalReaderSettingsSerializer, \
+    ReadingProgressSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -1173,14 +1174,45 @@ class PersonalReaderSettingsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        settings, created = PersonalReaderSettings.objects.get_or_create(user=request.user)
+        settings = request.user.reader_settings
         serializer = PersonalReaderSettingsSerializer(settings)
         return Response(serializer.data)
 
     def put(self, request):
-        settings, created = PersonalReaderSettings.objects.get_or_create(user=request.user)
+        settings = request.user.reader_settings
         serializer = PersonalReaderSettingsSerializer(settings, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
+
+
+class UpdateReadingProgressView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, book_id):
+        user = request.user
+        book = Book.objects.get(id=book_id)
+        last_page = request.data.get('last_page')
+
+        if not last_page:
+            return Response({'error': 'last_page is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        last_page = int(last_page)
+
+        # Обновление или создание ReadingProgress
+        progress, created = ReadingProgress.objects.update_or_create(
+            user=user,
+            book=book,
+            defaults={'last_page': last_page}
+        )
+
+        # Проверка условий для добавления в reading_books
+        if last_page >= 5 and book.is_free:
+            library, lib_created = Library.objects.get_or_create(user=user)
+            if book not in library.reading_books.all():
+                library.reading_books.add(book)
+                library.save()
+
+        serializer = ReadingProgressSerializer(progress)
+        return Response(serializer.data, status=status.HTTP_200_OK)
