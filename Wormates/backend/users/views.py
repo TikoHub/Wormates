@@ -1192,27 +1192,31 @@ class UpdateReadingProgressView(APIView):
 
     def post(self, request, book_id):
         user = request.user
-        book = Book.objects.get(id=book_id)
+        book = get_object_or_404(Book, id=book_id)
         last_page = request.data.get('last_page')
 
         if not last_page:
             return Response({'error': 'last_page is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        last_page = int(last_page)
+        try:
+            last_page = int(last_page)
+        except ValueError:
+            return Response({'error': 'last_page must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Обновление или создание ReadingProgress
         progress, created = ReadingProgress.objects.update_or_create(
             user=user,
             book=book,
             defaults={'last_page': last_page}
         )
 
-        # Проверка условий для добавления в reading_books
-        if last_page >= 5 and book.is_free:
+        if last_page >= 5 and book.price == Decimal('0.00'):
+            print("Conditions met: Adding book to reading_books")
             library, lib_created = Library.objects.get_or_create(user=user)
             if book not in library.reading_books.all():
                 library.reading_books.add(book)
-                library.save()
 
         serializer = ReadingProgressSerializer(progress)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+
