@@ -56,7 +56,7 @@ urlpatterns = [
         path('<str:username>/description/', views.update_profile_description, name='api_update_profile_description'), # Описание пользователя
 
         path('settings/reader_settings/', PersonalReaderSettingsView.as_view(), name='reader-settings'),
-        path('api/reading_progress/<int:book_id>/', UpdateReadingProgressView.as_view(), name='update-reading-progress'),
+        path('reading_progress/<int:book_id>/', UpdateReadingProgressView.as_view(), name='update-reading-progress'),
 
        # path('settings/web_page_settings/', WebPageSettingsAPIView.as_view(), name='api_web_settings'), # Настройки пользователя
        # path('settings/user_settings/', UserUpdateAPIView.as_view(), name='test-user'),
