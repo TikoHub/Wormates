@@ -6,6 +6,9 @@ from . import views
 urlpatterns = [
     path('api/', include([
         path('', BooksListAPIView.as_view(), name='books_list_api'),  # Главная Страница
+        path('top_viewed/', TopViewedBooksAPIView.as_view(), name='top-viewed-books'),
+        path('top_rated/', TopRatedBooksAPIView.as_view(), name='top-rated-books'),
+
         path('genres/', GenreListAPIView.as_view(), name='genre-list'),
 
         path('book_detail/<int:book_id>/', BookDetailAPIView.as_view(), name='book_detail_api'),  #Страница Книги

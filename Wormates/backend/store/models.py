@@ -87,6 +87,8 @@ class Book(models.Model):
     comment_access = models.CharField(max_length=10, choices=COMMENT_DOWNLOAD_CHOICES, default='public')
     download_access = models.CharField(max_length=10, choices=COMMENT_DOWNLOAD_CHOICES, default='public')
     demo_version = models.BooleanField(default=False)
+    publish_date = models.DateTimeField(null=True, blank=True)
+    updated = models.DateTimeField(auto_now=True)
 
     def calculate_total_pages(self):
         total_characters = sum(len(chapter.content) for chapter in self.chapters.all())
@@ -128,8 +130,6 @@ class Book(models.Model):
                     )
 
         super().save(*args, **kwargs)  # Save the book with all updates
-
-
 
     def toggle_comments_reviews(self):
         # Logic to toggle between comments and reviews
@@ -229,15 +229,19 @@ class Chapter(models.Model):
     published = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
-        if not self.title:
-            # Automatic title generation using chapter number
-            self.title = f"Chapter {self.chapter_number}"
-
-        book = self.book
-        book.updated = timezone.now()
-        book.save()
+        is_new = self.pk is None
+        was_published = None
+        if not is_new:
+            old_published = Chapter.objects.get(pk=self.pk).published
+            was_published = old_published
 
         super().save(*args, **kwargs)
+
+        # Публикуем если ранее не была публикованной по первой главе
+        if self.published and (is_new or not was_published):
+            if not self.book.publish_date:
+                self.book.publish_date = timezone.now()
+                self.book.save()
 
     def delete(self, *args, **kwargs):
         book = self.book

@@ -6,6 +6,7 @@ import magic
 from django.shortcuts import redirect
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from .models import CommentLike, CommentDislike, BookUpvote, BookDownvote
@@ -52,23 +53,44 @@ class BooksListAPIView(generics.ListAPIView):
         user = self.request.user
         genre_id = self.request.query_params.get('genre_id', None)
         free_only = self.request.query_params.get('free_only', None)
-        first_in_series = self.request.query_params.get('first_in_series',
-                                                        None)
+        first_in_series = self.request.query_params.get('first_in_series', None)
+        date_filter = self.request.query_params.get('date_filter', None)
 
-        base_query = Book.objects.exclude(genre__name='Undefined')  # Exclude books with "Undefined" genre
+        base_query = Book.objects.exclude(genre__name='Undefined')
 
-        # Фильтрация по жанру, если указан
+        # Фильтрация по жанру
         if genre_id:
             base_query = base_query.filter(genre__id=genre_id)
 
         if free_only == 'true':
-            base_query = base_query.filter(
-                price=0)
+            base_query = base_query.filter(price=0)
 
         if first_in_series == 'true':
             base_query = base_query.filter(volume_number=1)
 
-        # Annotate each book with a flag indicating if it has at least one published chapter
+        # Фильтрация по дате выпуска
+        if date_filter:
+            now = timezone.now()
+            if date_filter == 'today':
+                start_date = now - timedelta(hours=24)
+                base_query = base_query.filter(publish_date__gte=start_date, publish_date__lte=now)
+            elif date_filter == 'last_day':
+                start_date = now - timedelta(days=7)
+                end_date = now - timedelta(days=1)
+                base_query = base_query.filter(publish_date__gte=start_date, publish_date__lte=end_date)
+            elif date_filter == 'week_ago':
+                start_date = now - timedelta(days=30)
+                end_date = now - timedelta(days=7)
+                base_query = base_query.filter(publish_date__gte=start_date, publish_date__lte=end_date)
+            elif date_filter == 'month_ago':
+                start_date = now - timedelta(days=365)
+                end_date = now - timedelta(days=30)
+                base_query = base_query.filter(publish_date__gte=start_date, publish_date__lte=end_date)
+            elif date_filter == 'year_ago':
+                end_date = now - timedelta(days=365)
+                base_query = base_query.filter(publish_date__lte=end_date)
+
+        # Проверка наличия опубликованных глав
         has_published_chapters = Chapter.objects.filter(
             book=OuterRef('pk'),
             published=True
@@ -77,17 +99,40 @@ class BooksListAPIView(generics.ListAPIView):
             qualified=Exists(has_published_chapters)
         )
 
+        # Фильтрация по видимости
         if user.is_authenticated:
-            return base_query.filter(
+            base_query = base_query.filter(
                 Q(visibility='public') |
                 Q(visibility='followers', author__follower_users__follower=user),
-                qualified=True  # Only include books that are qualified
-            ).distinct().order_by('-views_count')
+                qualified=True
+            ).distinct()
+        else:
+            base_query = base_query.filter(
+                visibility='public',
+                qualified=True
+            )
 
-        return base_query.filter(
-            visibility='public',
-            qualified=True  # Only include books that are qualified
-        ).order_by('-views_count')
+        return base_query
+
+
+class SmallPagination(PageNumberPagination):
+    page_size = 3
+
+
+class TopViewedBooksAPIView(BooksListAPIView):
+    pagination_class = SmallPagination
+
+    def get_viewed_queryset(self):
+        base_query = self.get_queryset()
+        return base_query.order_by('-views_count')
+
+
+class TopRatedBooksAPIView(BooksListAPIView):
+    pagination_class = SmallPagination
+
+    def get_rated_queryset(self):
+        base_query = self.get_queryset()
+        return base_query.order_by('-rating')
 
 
 class BookDetailAPIView(generics.RetrieveAPIView):
