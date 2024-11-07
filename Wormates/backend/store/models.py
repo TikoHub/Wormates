@@ -410,4 +410,3 @@ class AnonymousBookAccess(models.Model): # Запись истории посе�
     book = models.ForeignKey(Book, on_delete=models.CASCADE)
     accessed_at = models.DateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
-

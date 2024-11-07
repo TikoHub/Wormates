@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, WebPageSettings, Notification, PersonalReaderSettings, ReadingProgress, \
-    NotificationSetting, WalletTransaction, UsersNotificationSettings
+    NotificationSetting, WalletTransaction, UsersNotificationSettings, UserMainPageSettings
 from store.models import Book, Genre, Series, Comment, BookUpvote, Review
 from .helpers import FollowerHelper
 from django.utils.formats import date_format
@@ -574,3 +574,15 @@ class ReadingProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReadingProgress
         fields = '__all__'
+
+
+class UserMainPageSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserMainPageSettings
+        fields = [
+            'main_page_theme',
+            'show_first_books',
+            'show_only_free_books',
+            'restricted_mode',
+            'view_mode',
+        ]

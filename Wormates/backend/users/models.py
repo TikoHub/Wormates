@@ -339,3 +339,26 @@ class ReadingProgress(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s progress on {self.book.title}"
+
+
+class UserMainPageSettings(models.Model):
+    THEME_CHOICES = [
+        ('default_theme', 'Default Theme'),
+        ('white_theme', 'White Theme'),
+    ]
+
+    VIEW_MODE_CHOICES = [
+        ('horizontal', 'Horizontal'),
+        ('vertical', 'Vertical'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='main_page_settings')
+    main_page_theme = models.CharField(max_length=100, choices=THEME_CHOICES, default='default_theme')
+    show_first_books = models.BooleanField(default=False)
+    show_only_free_books = models.BooleanField(default=False)
+    restricted_mode = models.BooleanField(default=False)
+    view_mode = models.CharField(max_length=10, choices=VIEW_MODE_CHOICES, default='horizontal')
+
+    def __str__(self):
+        return f"Main Page Settings for {self.user.username}"
+

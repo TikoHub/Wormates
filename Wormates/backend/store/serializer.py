@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Chapter, Book, Comment, Review, Genre, Series, BookView, ReviewLike, ReviewDislike, AuthorNote, BookFile, Illustration
+from .models import Chapter, Book, Comment, Review, Genre, Series, BookView, ReviewLike, ReviewDislike, AuthorNote,  \
+    BookFile, Illustration
 from users.models import Profile, FollowersCount
 from django.utils.formats import date_format
 from django.shortcuts import get_object_or_404
@@ -545,10 +546,4 @@ class BookVisibilitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Book
         fields = ['visibility']
-
-
-class GenreSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Genre
-        fields = ['id', 'name']
 

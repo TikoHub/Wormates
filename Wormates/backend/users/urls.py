@@ -6,7 +6,7 @@ from .views import (CustomUserLoginView, ProfileAPIView, RegisterView, PrivacySe
                     UpdateNotificationSettingsView, PersonalReaderSettingsView,  \
                     UserNotificationsAPIView, FollowView, UserNotificationSettingsView, TokenCheckView, \
                     VerifyEmailCodeView, ResendVerificationCodeView, UserProfileSettingsAPIView, UpdateReadingProgressView, \
-
+                    UserMainPageSettingsView
                     )
     #VerifyRegistrationView WebPageSettingsAPIView UserUpdateAPIView
 from django.views.generic import TemplateView
@@ -81,6 +81,7 @@ urlpatterns = [
         path('payment_failed/', views.payment_failed, name='payment_failed'), # Всплывающее окно после неуспешной оплаты
         path('stripe_webhook/', views.stripe_webhook, name='stripe_webhook'), # Не трогать
 
+        path('settings/mainpage/', UserMainPageSettingsView.as_view(), name='user-settings'),
     # ...add more paths for the other settings
     # ...
     ])),

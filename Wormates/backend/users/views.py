@@ -11,7 +11,7 @@ from django.core.mail import send_mail
 from django.db.models import Q, Count
 from django.http import JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
-from rest_framework import generics
+from rest_framework import generics, permissions
 from rest_framework.decorators import permission_classes, api_view
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.response import Response
@@ -31,14 +31,14 @@ from django.utils.http import urlsafe_base64_decode
 
 from .models import Achievement, Notification, Conversation, Message, Profile,NotificationSetting, \
     WebPageSettings, Library, EmailVerification, Wallet, StripeCustomer, PersonalReaderSettings, \
-    UsersNotificationSettings, VerificationCode, WalletTransaction, ReadingProgress
+    UsersNotificationSettings, VerificationCode, WalletTransaction, ReadingProgress, UserMainPageSettings
 
 from .serializers import CustomUserRegistrationSerializer, UserSerializer, CustomUserLoginSerializer, ProfileSerializer, \
     LibraryBookSerializer, AuthoredBookSerializer, ParentCommentSerializer, CommentSerializer, ReviewSerializer, \
     UserProfileSettingsSerializer, NotificationSerializer, PrivacySettingsSerializer, PasswordChangeRequestSerializer, \
     NotificationSerializer, NotificationSettingSerializer, UserNotificationSettingsSerializer, ProfileDescriptionSerializer, \
     MyTokenObtainPairSerializer, FollowSerializer, WalletTransactionSerializer, SeriesSerializer, PersonalReaderSettingsSerializer, \
-    ReadingProgressSerializer
+    ReadingProgressSerializer, UserMainPageSettingsSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -1219,4 +1219,11 @@ class UpdateReadingProgressView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class UserMainPageSettingsView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserMainPageSettingsSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
+    def get_object(self):
+        user = self.request.user
+        settings, created = UserMainPageSettings.objects.get_or_create(user=user)
+        return settings

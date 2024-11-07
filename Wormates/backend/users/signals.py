@@ -1,6 +1,7 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import Profile, Wallet, UsersNotificationSettings, Notification, Library, WebPageSettings, PersonalReaderSettings
+from .models import Profile, Wallet, UsersNotificationSettings, Notification, Library, WebPageSettings, PersonalReaderSettings, \
+    UserMainPageSettings
 from django.contrib.auth.models import User
 from datetime import date
 from allauth.socialaccount.models import SocialAccount
@@ -57,3 +58,9 @@ def create_social_username(request, sociallogin, **kwargs):
 def create_reader_settings(sender, instance, created, **kwargs):
     if created:
         PersonalReaderSettings.objects.create(user=instance)
+
+
+@receiver(post_save, sender=User)
+def create_user_settings(sender, instance, created, **kwargs):
+    if created:
+        UserMainPageSettings.objects.create(user=instance)
