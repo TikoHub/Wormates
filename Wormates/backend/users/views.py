@@ -49,15 +49,15 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         self.send_verification_code(user)
-        return Response({'status': 'Пользователь успешно зарегистрирован. Пожалуйста, подтвердите свой email.'}, status=status.HTTP_201_CREATED)
+        return Response({'status': 'User already created, please validate your email'}, status=status.HTTP_201_CREATED)
 
     def send_verification_code(self, user):
         code = str(random.randint(1000, 9999))
         # Сохраняем код в VerificationCode
         VerificationCode.objects.create(user=user, code=code)
         # Отправляем код на email
-        subject = 'Код подтверждения регистрации'
-        message = f'Ваш код подтверждения: {code}'
+        subject = 'Register confirmation code'
+        message = f'Your verification code: {code}'
         send_mail(subject, message, 'from@example.com', [user.email])
 
 
@@ -67,20 +67,20 @@ class ResendVerificationCodeView(APIView):
     def post(self, request):
         email = request.data.get('email')
         if not email:
-            return Response({'error': 'Необходимо указать email.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Please enter email'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             user = User.objects.get(email=email)
             if user.is_active:
-                return Response({'error': 'Учетная запись уже активирована.'}, status=status.HTTP_400_BAD_REQUEST)
-            # Генерируем новый код и отправляем
+                return Response({'error': 'Your account already activated'}, status=status.HTTP_400_BAD_REQUEST)
+
             code = str(random.randint(1000, 9999))
             VerificationCode.objects.update_or_create(user=user, defaults={'code': code, 'created_at': timezone.now()})
-            subject = 'Новый код подтверждения регистрации'
-            message = f'Ваш новый код подтверждения: {code}'
+            subject = 'New registration confirmation code'
+            message = f'Your new verification code: {code}'
             send_mail(subject, message, 'from@example.com', [user.email])
-            return Response({'status': 'Новый код отправлен на ваш email.'}, status=status.HTTP_200_OK)
+            return Response({'status': 'A new code has been sent to your email'}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
-            return Response({'error': 'Пользователь с таким email не найден.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'User with this email was not found'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class VerifyEmailCodeView(APIView):
@@ -90,20 +90,20 @@ class VerifyEmailCodeView(APIView):
         email = request.data.get('email')
         code = request.data.get('code')
         if not email or not code:
-            return Response({'error': 'Необходимо указать email и код.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'You must provide an email and code'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             user = User.objects.get(email=email)
             verification_code = VerificationCode.objects.get(user=user, code=code)
             if verification_code.is_expired:
-                return Response({'error': 'Код истек. Пожалуйста, запросите новый код.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'The code has expired. Please request a new code'}, status=status.HTTP_400_BAD_REQUEST)
             user.is_active = True
             user.save()
-            verification_code.delete()  # Удаляем использованный код
-            return Response({'status': 'Email успешно подтвержден.'}, status=status.HTTP_200_OK)
+            verification_code.delete()
+            return Response({'status': 'Email has been successfully confirmed'}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
-            return Response({'error': 'Пользователь с таким email не найден.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'User with this email was not found'}, status=status.HTTP_400_BAD_REQUEST)
         except VerificationCode.DoesNotExist:
-            return Response({'error': 'Неверный код подтверждения.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Code is incorrect'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ActivateAccountView(APIView):
@@ -117,9 +117,9 @@ class ActivateAccountView(APIView):
         if user is not None and default_token_generator.check_token(user, token):
             user.is_active = True
             user.save()
-            return Response({'status': 'Аккаунт успешно активирован'}, status=status.HTTP_200_OK)
+            return Response({'status': 'Account activated successfully'}, status=status.HTTP_200_OK)
         else:
-            return Response({'error': 'Неверная ссылка активации или она уже была использована.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'The activation link is incorrect or has already been used'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CustomUserLoginView(APIView):

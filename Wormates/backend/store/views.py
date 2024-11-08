@@ -662,14 +662,31 @@ def publish_action(request, book_id, chapter_id=None):
                         status=status.HTTP_403_FORBIDDEN)
 
     if action == 'not_published':
-        # Установить published = False для указанной главы
+        # Установить published = False для указанной главы и всех последующих глав
         if not chapter_id:
             return Response({'error': 'Chapter ID is required for this action.'},
                             status=status.HTTP_400_BAD_REQUEST)
         chapter = get_object_or_404(Chapter, id=chapter_id, book=book)
-        chapter.published = False
-        chapter.save()
-        return Response({'published': chapter.published, 'message': 'Chapter unpublished successfully.'})
+        chapter_number = chapter.chapter_number
+
+        # Получаем все главы с номером >= текущей
+        chapters_to_unpublish = Chapter.objects.filter(
+            book=book,
+            chapter_number__gte=chapter_number,
+            published=True
+        ).order_by('chapter_number')
+
+        with transaction.atomic():
+            # Массовое обновление без цикла
+            chapters_to_unpublish.update(published=False)
+
+        # Обновляем дату изменения книги
+        book.updated = timezone.now()
+        book.save()
+
+        return Response({
+            'message': f'Chapters from {chapter_number} onward have been unpublished successfully.'
+        })
 
     elif action == 'publish_chapter':
         # Установить published = True для указанной главы
