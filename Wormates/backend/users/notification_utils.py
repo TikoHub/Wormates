@@ -2,47 +2,46 @@
 from django.apps import apps
 from django.contrib.auth.models import User  # Make sure to import User
 
+from .models import Notification, UserBookChapterNotification, Library
+
 
 def send_book_update_notifications(book, chapter_title):
-    NotificationModel = apps.get_model('users', 'Notification')
-    UserBookChapterNotificationModel = apps.get_model('users', 'UserBookChapterNotification')
+    users_to_notify = set()
+    categories = ['reading', 'liked', 'wish_list', 'favorites']
 
-    all_users = set()
-    categories = ['reading', 'liked', 'wishlist', 'favorites']
     for category in categories:
-        users_in_category = getattr(book, f'{category}_users').all().values_list('user', flat=True)
-        all_users.update(users_in_category)
+        # Получаем библиотеки, где книга находится в соответствующей категории
+        libraries = Library.objects.filter(**{f'{category}_books': book})
 
-    all_users = User.objects.filter(id__in=all_users)
+        # Получаем пользователей из библиотек
+        for library in libraries:
+            user = library.user
+            user_settings = user.notification_settings
+            notify_attr = f'library_{category}_updates'
+            if getattr(user_settings, notify_attr, False):
+                users_to_notify.add(user)
 
-    for user in all_users:
-        user_settings = user.user_notification_settings
-        should_notify = False
-        for category in categories:
-            if user.library in getattr(book, f'{category}_users').all():
-                if getattr(user_settings, f'notify_{category}', False):
-                    should_notify = True
-                    break
+    # Создаём уведомления для пользователей
+    for user in users_to_notify:
+        user_settings = user.notification_settings
 
-        if should_notify:
-            obj, created = UserBookChapterNotificationModel.objects.get_or_create(user=user, book=book)
-            current_chapter_count = book.chapter_count()
-            chapters_since_last_notified = current_chapter_count - obj.chapter_count_at_last_notification
+        # Получаем или создаём запись UserBookChapterNotification
+        ubcn, created = UserBookChapterNotification.objects.get_or_create(user=user, book=book)
 
-            print(f"User: {user.username}, Chapters since last notified: {chapters_since_last_notified}, Threshold: {user_settings.chapter_notification_threshold}")
+        current_chapter_count = book.chapter_count()
+        chapters_since_last_notified = current_chapter_count - ubcn.chapter_count_at_last_notification
 
-            if chapters_since_last_notified >= user_settings.chapter_notification_threshold:
-                obj.last_notified_chapter_count = current_chapter_count
-                obj.chapter_count_at_last_notification = current_chapter_count
-                obj.save()
-                print(f"Updating notification counts for user {user.username}. New count: {current_chapter_count}")
+        if chapters_since_last_notified >= user_settings.chapter_notification_threshold:
+            ubcn.last_notified_chapter_count = current_chapter_count
+            ubcn.chapter_count_at_last_notification = current_chapter_count
+            ubcn.save()
 
-                NotificationModel.objects.create(
-                    recipient=user.profile,
-                    sender=book.author.profile,
-                    notification_type='book_update',
-                    book=book,
-                    book_name=book.name,
-                    chapter_title=chapter_title
-                )
-                print(f"Notification sent for user {user.username} for chapter {chapter_title}")
+            Notification.objects.create(
+                recipient=user.profile,
+                sender=book.author.profile,
+                notification_type='book_update',
+                book=book,
+                book_name=book.name,
+                chapter_title=chapter_title
+            )
+

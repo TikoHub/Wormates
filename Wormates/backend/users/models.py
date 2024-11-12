@@ -64,23 +64,23 @@ class Notification(models.Model):
         super().save(*args, **kwargs)
 
     def get_message(self):
-        if self.notification_type == 'follow':
-            return f"{self.sender.user.username} followed you"
-        elif self.notification_type == 'comment reply':
-            return f"{self.sender.user.username} replied to your comment"
-        elif self.notification_type == 'new comment':
-            return f"{self.sender.user.username} commented on your book {self.book.name}"
-        elif self.notification_type == 'book_update':
-            return f"New update in {self.book.name}"
-        elif self.notification_type == 'new_ebook':  # Add this block
-            return f"New Ebook: {self.book.name}"
-        elif self.notification_type == 'review_update':
-            return f"{self.sender.user.username} reviewed your book {self.book.name}"
-        else:
-            return ""
+        username = self.sender.user.username if self.sender else "Someone"
+        book_name = self.book.name if self.book else "a book"
+
+        messages = {
+            'like': f"{username} liked your book {book_name}",
+            'follow': f"{username} followed you",
+            'comment reply': f"{username} replied to your comment",
+            'new comment': f"{username} commented on your book {book_name}",
+            'book_update': f"New update in {book_name}",
+            'new_ebook': f"New Ebook: {book_name}",
+            'review_update': f"{username} reviewed your book {book_name}",
+        }
+
+        return messages.get(self.notification_type, "")
 
 
-class UsersNotificationSettings(models.Model):
+class NotificationSettings(models.Model):
     CHAPTER_NOTIFICATION_CHOICES = [
         (1, '1 Chapter'),
         (3, '3 Chapters'),
@@ -89,12 +89,22 @@ class UsersNotificationSettings(models.Model):
         (30, '30 Chapters'),
     ]
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='user_notification_settings')
-    notify_reading = models.BooleanField(default=True)
-    notify_liked = models.BooleanField(default=True)
-    notify_wishlist = models.BooleanField(default=True)
-    notify_favorites = models.BooleanField(default=True)
-    chapter_notification_threshold = models.IntegerField(default=1, choices=CHAPTER_NOTIFICATION_CHOICES)  # Default to 1 chapter
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_settings')
+
+    chapter_notification_threshold = models.IntegerField(default=1, choices=CHAPTER_NOTIFICATION_CHOICES)
+
+    # Дополнительные настройки
+    group_by_author = models.BooleanField(default=True)
+    show_author_updates = models.BooleanField(default=True)
+    newbooks = models.BooleanField(default=False)
+    library_reading_updates = models.BooleanField(default=True)
+    library_wishlist_updates = models.BooleanField(default=True)
+    library_liked_updates = models.BooleanField(default=True)
+    library_favourite_updates = models.BooleanField(default=False)
+    show_review_updates = models.BooleanField(default=True)
+    show_comment_updates = models.BooleanField(default=True)
+    show_follower_updates = models.BooleanField(default=True)
+    show_response_updates = models.BooleanField(default=True)
 
 
 class UserBookChapterNotification(models.Model):
@@ -280,24 +290,6 @@ class EmailVerification(models.Model):
     verified = models.BooleanField(default=False)
 
 
-class NotificationSetting(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_settings')
-    group_by_author = models.BooleanField(default=True)
-    # show_book_updates = models.BooleanField(default=True)  # Commented out for now
-    show_author_updates = models.BooleanField(default=True)
-
-    newbooks = models.BooleanField(default=False)
-    library_reading_updates = models.BooleanField(default=True)
-    library_wishlist_updates = models.BooleanField(default=True)
-    library_liked_updates = models.BooleanField(default=True)
-    library_favourite_updates = models.BooleanField(default=False)
-
-    show_review_updates = models.BooleanField(default=True)
-    show_comment_updates = models.BooleanField(default=True)
-    show_follower_updates = models.BooleanField(default=True)
-    show_response_updates = models.BooleanField(default=True)
-
-
 class StripeCustomer(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     stripe_customer_id = models.CharField(max_length=255, null=True, blank=True)
@@ -362,3 +354,16 @@ class UserMainPageSettings(models.Model):
     def __str__(self):
         return f"Main Page Settings for {self.user.username}"
 
+
+class PasswordChangeRequest(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_change_requests')
+    verification_code = models.CharField(max_length=6)
+    hashed_new_password = models.CharField(max_length=128)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"Password change request for {self.user.username}"

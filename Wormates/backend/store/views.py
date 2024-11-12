@@ -28,7 +28,7 @@ from .serializer import *
 from .converters import create_fb2, parse_fb2
 from django.core.files.storage import default_storage
 from datetime import date
-from users.models import WebPageSettings, Library, Profile, FollowersCount, PurchasedBook, NotificationSetting, \
+from users.models import WebPageSettings, Library, Profile, FollowersCount, PurchasedBook, NotificationSettings, \
     UserMainPageSettings
 from django.db.models import Exists, OuterRef
 from django.db.models import Q
@@ -45,6 +45,8 @@ from bs4 import BeautifulSoup
 from django.db import transaction
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+
+from users.models import UserBookChapterNotification
 
 
 class InfiniteScrollPagination(LimitOffsetPagination):
@@ -259,6 +261,31 @@ class BookDetailAPIView(generics.RetrieveAPIView):
         return Response(serialized_data)
 
 
+class BookDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, book_id):
+        user = request.user
+        book = get_object_or_404(Book, id=book_id)
+
+        # Проверяем, что пользователь является автором книги
+        if book.author != user:
+            return Response({'error': 'You are not authorized to delete this book.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        confirm_delete = request.query_params.get('confirm_delete', 'false').lower()
+        if confirm_delete == 'true':
+            # Удаляем книгу и все связанные главы
+            book.delete()
+            return Response({'message': 'Book deleted successfully.'}, status=status.HTTP_200_OK)
+        else:
+            # Возвращаем предупреждение
+            return Response({
+                'warning': 'You are about to delete the book, the changes are irreversible. Do you want to proceed?',
+                'confirmation_required': True
+            }, status=status.HTTP_200_OK)
+
+
 @api_view(['GET'])
 def get_book_info(request, book_id):
     try:
@@ -277,7 +304,7 @@ def get_book_content(request, book_id):
     except Book.DoesNotExist:
         return Response({'error': 'Book not found'}, status=404)
 
-    serializer = BookContentSerializer(book)
+    serializer = BookContentSerializer(book, context={'request': request})
     return Response(serializer.data)
 
 
@@ -776,6 +803,37 @@ class ChapterNotesView(APIView):
         notes = AuthorNote.objects.filter(book_id=book_id, chapter_id=chapter_id, author=request.user)
         serializer = AuthorNoteSerializer(notes, many=True)
         return Response(serializer.data)
+
+
+class ChapterDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, book_id, chapter_id):
+        user = request.user
+        book = get_object_or_404(Book, id=book_id)
+
+        if book.author != user:
+            return Response({'error': 'You are not authorized to delete chapters from this book.'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        chapter = get_object_or_404(Chapter, id=chapter_id, book=book)
+
+        chapter_count = Chapter.objects.filter(book=book).count()
+
+        if chapter_count == 1:
+            confirm_delete = request.query_params.get('confirm_delete', 'false').lower()
+            if confirm_delete == 'true':
+                chapter.delete()
+                book.delete()
+                return Response({'message': 'Chapter and book deleted successfully.'}, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'warning': 'You are about to delete the book, the changes are irreversible. Do You want to proceed?',
+                    'book_will_be_deleted': True
+                }, status=status.HTTP_200_OK)
+        else:
+            chapter.delete()
+            return Response({'message': 'Chapter deleted successfully.'}, status=status.HTTP_200_OK)
 
 
 class ChapterDownloadView(APIView):
@@ -1525,41 +1583,74 @@ class UnloggedUserHistoryView(APIView):
 
 
 class NewsNotificationsView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
-        # Fetch all notifications for the user, grouped by book
+        user = request.user
+        settings = user.notification_settings
+
+        # Получаем настройки пользователя для категорий библиотеки
+        library_categories = []
+        if settings.library_reading_updates:
+            library_categories.append('reading')
+        if settings.library_wishlist_updates:
+            library_categories.append('wish_list')
+        if settings.library_liked_updates:
+            library_categories.append('liked')
+        if settings.library_favourite_updates:
+            library_categories.append('favorites')
+
+        # Получаем книги из библиотеки пользователя в указанных категориях
+        books = Book.objects.none()
+        for category in library_categories:
+            books |= getattr(user.library, f'{category}_books').all()
+        books = books.distinct()
+
+        # Фильтруем уведомления по типу и книгам
         notifications = Notification.objects.filter(
-            recipient=request.user.profile
+            recipient=user.profile,
+            notification_type='book_update',
+            book__in=books
         ).order_by('-timestamp')
 
-        # Aggregate notifications by book
-        books = {}
+        # Группируем уведомления по книгам
+        books_dict = {}
         for notification in notifications:
             book_id = notification.book_id
-            if book_id not in books:
-                books[book_id] = {
+            if book_id not in books_dict:
+                books_dict[book_id] = {
                     'book': notification.book,
                     'notifications': [],
                     'updates_count': 0
                 }
-            books[book_id]['notifications'].append(notification)
-            books[book_id]['updates_count'] += 1
+            books_dict[book_id]['notifications'].append(notification)
+            books_dict[book_id]['updates_count'] += 1
 
-        # Prepare data for serialization using NewsInfoSerializer
-        serialized_data = [
-            {
+        # Подготавливаем данные для сериализации
+        serialized_data = []
+        for info in books_dict.values():
+            # Сортируем уведомления по времени
+            sorted_notifications = sorted(info['notifications'], key=lambda n: n.timestamp, reverse=True)
+
+            # Формируем список обновлений
+            updates_list = [
+                {
+                    'id': n.id,
+                    'chapter_title': n.chapter_title if n.chapter_title else n.chapter.title if n.chapter else '',
+                    'formatted_timestamp': n.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                }
+                for n in sorted_notifications
+            ]
+
+            # Добавляем книгу и информацию об обновлениях
+            serialized_data.append({
                 'book': NewsInfoSerializer(info['book'], context={'request': request}).data,
                 'updates_count': info['updates_count'],
-                'updates_list': [
-                    {
-                        'id': n.id,
-                        'chapter_title': n.chapter_title,  # Assuming notifications have chapter_title
-                        'formatted_timestamp': n.timestamp.strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    for n in info['notifications']
-                ]
-            }
-            for info in books.values()
-        ]
+                'updates_list': updates_list
+            })
+
+        # Сортируем книги по дате последнего обновления
+        serialized_data.sort(key=lambda x: x['updates_list'][0]['formatted_timestamp'], reverse=True)
 
         return Response(serialized_data)
 

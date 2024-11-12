@@ -97,40 +97,6 @@ class Book(models.Model):
     def get_display_price(self):
         return "Free" if self.price == 0 else self.price
 
-    def save(self, *args, **kwargs):
-        from users.models import Notification
-        if self.series:  # If the book is part of a series
-            if not self.volume_number:
-                # Get the current highest sequence number in the series
-                current_max = self.series.books.aggregate(Max('volume_number'))['volume_number__max']
-                self.volume_number = (current_max + 1) if current_max is not None else 1
-            else:
-                # Update volume numbers for subsequent books in the series
-                subsequent_books = self.series.books.filter(volume_number__gte=self.volume_number).exclude(pk=self.pk)
-                for book in subsequent_books:
-                    book.volume_number += 1
-                    book.save(update_fields=['volume_number'])
-        else:  # If the book is not part of a series
-            self.volume_number = 1  # Set volume number to 1
-
-        if self.pk:  # Check if the book already exists in the database
-            old_book = Book.objects.get(pk=self.pk)
-            if old_book.visibility != 'public' and self.visibility == 'public' and self.genre.name != 'Undefined':
-                # The book's visibility has been changed to public and the genre is defined
-                existing_user = User.objects.get(
-                    username='wormates')  # Replace 'admin' with the username of an existing user
-                users = User.objects.filter(notification_settings__newbooks=True)
-                for user in users:
-                    Notification.objects.create(
-                        recipient=user.profile,
-                        sender=existing_user.profile,
-                        notification_type='new_ebook',
-                        book=self,
-                        message=f'{self.name} has just been released!'
-                    )
-
-        super().save(*args, **kwargs)  # Save the book with all updates
-
     def toggle_comments_reviews(self):
         # Logic to toggle between comments and reviews
         self.display_comments = not self.display_comments
@@ -165,13 +131,6 @@ class Book(models.Model):
             return True
         return False
 
-    def notify_users(self):
-        from users.notification_utils import send_book_update_notifications
-        latest_chapter = self.chapters.order_by('-created').first()
-        if latest_chapter and latest_chapter.published:
-            chapter_title = latest_chapter.title
-            send_book_update_notifications(self, chapter_title)
-
     @property
     def latest_chapter_title(self):
         # Assuming you have a Chapter model with a foreign key to Book
@@ -181,6 +140,9 @@ class Book(models.Model):
     def chapter_count(self):
         # Implement this method to return the number of chapters in the book
         return self.chapters.count()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
 
 
 class BookFile(models.Model):

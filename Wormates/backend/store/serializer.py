@@ -141,13 +141,49 @@ class BookInfoSerializer(serializers.ModelSerializer):         # Book_Detail/Inf
         fields = ['total_chapters', 'total_pages', 'description', 'formatted_last_modified']
 
 
-class BookContentSerializer(serializers.ModelSerializer):  # Book_Detail/Content
+class BookContentSerializer(serializers.ModelSerializer):
     chapters = serializers.SerializerMethodField()
 
     def get_chapters(self, obj):
-        # Filter chapters to include only those that are published
-        published_chapters = obj.chapters.filter(published=True)
-        return ChapterSummarySerializer(published_chapters, many=True).data
+        request = self.context.get('request')
+        view_type = request.query_params.get('view', 'desktop') if request else 'desktop'
+
+        # Получаем опубликованные главы, упорядоченные по номеру главы
+        published_chapters = obj.chapters.filter(published=True).order_by('chapter_number')
+        chapters = list(published_chapters)
+
+        if view_type == 'mobile':
+            # Для мобильной версии возвращаем главы в виде плоского списка
+            serialized_chapters = ChapterSummarySerializer(chapters, many=True).data
+            return serialized_chapters
+        else:
+            # Логика для ПК-версии (распределение по столбцам)
+            total_chapters = len(chapters)
+            num_columns = min(4, total_chapters)
+            columns = [[] for _ in range(num_columns)]
+
+            if total_chapters == 0:
+                return columns  # Возвращаем пустые столбцы
+
+            base_chapters_per_column = total_chapters // num_columns
+            extra_chapters = total_chapters % num_columns
+
+            index = 0
+            for i in range(num_columns):
+                chapters_in_column = base_chapters_per_column
+                if i < extra_chapters:
+                    chapters_in_column += 1  # Первые столбцы получают на одну главу больше
+                start = index
+                end = index + chapters_in_column
+                columns[i] = chapters[start:end]
+                index += chapters_in_column
+
+            # Сериализуем главы в каждом столбце
+            serialized_columns = []
+            for column in columns:
+                serialized_column = ChapterSummarySerializer(column, many=True).data
+                serialized_columns.append(serialized_column)
+            return serialized_columns
 
     class Meta:
         model = Book

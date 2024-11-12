@@ -1,6 +1,6 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import Profile, Wallet, UsersNotificationSettings, Notification, Library, WebPageSettings, PersonalReaderSettings, \
+from .models import Profile, Wallet, Notification, Library, WebPageSettings, PersonalReaderSettings, NotificationSettings, \
     UserMainPageSettings
 from django.contrib.auth.models import User
 from datetime import date
@@ -18,7 +18,7 @@ def create_user_profile_and_other_settings(sender, instance, created, **kwargs):
 
         # Create other related objects
         Wallet.objects.create(profile=profile)
-        UsersNotificationSettings.objects.create(user=instance)
+        NotificationSettings.objects.create(user=instance)
         Library.objects.get_or_create(user=instance)
         Notification.objects.create(
             recipient=profile,

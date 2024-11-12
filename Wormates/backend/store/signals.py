@@ -1,8 +1,10 @@
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
-from store.models import CommentLike, CommentDislike, Review, Comment, Book
-from users.models import Notification, NotificationSetting
+from .models import CommentLike, CommentDislike, Review, Comment, Book, Chapter
+from users.models import Notification, NotificationSettings
 from django.contrib.auth.models import User
+from django.db.models import Max
+from users.views import notify_users_of_new_chapter
 
 
 @receiver(post_save, sender=CommentLike)
@@ -17,7 +19,7 @@ def update_comment_rating(sender, instance, **kwargs):
 def send_review_notification(sender, instance, created, **kwargs):
     if created:
         book_author = instance.book.author
-        author_settings = NotificationSetting.objects.get(user=book_author)
+        author_settings = NotificationSettings.objects.get(user=book_author)
 
         # Send notification based on the author's settings
         # and make sure the sender is not the recipient
@@ -34,7 +36,7 @@ def send_review_notification(sender, instance, created, **kwargs):
 def send_comment_notification(sender, instance, created, **kwargs):
     if created:
         book_author = instance.book.author
-        author_settings = NotificationSetting.objects.get(user=book_author)
+        author_settings = NotificationSettings.objects.get(user=book_author)
 
         # Check if the comment is a reply
         if instance.parent_comment:
@@ -59,3 +61,39 @@ def book_update_notification(sender, instance, **kwargs):
     instance.notify_users()
 
 
+@receiver(post_save, sender=Book)
+def notify_new_book_release(sender, instance, created, **kwargs):
+    if created and instance.visibility == 'public' and instance.genre.name != 'Undefined':
+        existing_user = User.objects.get(username='wormates')
+        users = User.objects.filter(notification_settings__newbooks=True)
+        notifications = []
+        for user in users:
+            notifications.append(Notification(
+                recipient=user.profile,
+                sender=existing_user.profile,
+                notification_type='new_ebook',
+                book=instance,
+                message=f'{instance.name} has just been released!'
+            ))
+        Notification.objects.bulk_create(notifications)
+
+
+@receiver(pre_save, sender=Book)
+def manage_volume_number(sender, instance, **kwargs):
+    if instance.series:
+        if not instance.volume_number:
+            current_max = instance.series.books.aggregate(Max('volume_number'))['volume_number__max']
+            instance.volume_number = (current_max + 1) if current_max is not None else 1
+        else:
+            subsequent_books = instance.series.books.filter(volume_number__gte=instance.volume_number).exclude(pk=instance.pk)
+            for book in subsequent_books:
+                book.volume_number += 1
+                book.save(update_fields=['volume_number'])
+    else:
+        instance.volume_number = 1
+
+
+@receiver(post_save, sender=Chapter)
+def notify_new_chapter(sender, instance, created, **kwargs):
+    if created and instance.published:
+        notify_users_of_new_chapter(instance.book)

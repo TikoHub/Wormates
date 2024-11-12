@@ -4,7 +4,7 @@ from .views import (CustomUserLoginView, ProfileAPIView, RegisterView, PrivacySe
                     PasswordChangeRequestView, PasswordChangeVerificationView, NotificationSettingsAPIView, \
                     AddToLibraryView, WalletBalanceView, DepositView, TransactionHistoryView,
                     UpdateNotificationSettingsView, PersonalReaderSettingsView,  \
-                    UserNotificationsAPIView, FollowView, UserNotificationSettingsView, TokenCheckView, \
+                    UserNotificationsAPIView, FollowView, UserNotificationsAPIView, TokenCheckView, \
                     VerifyEmailCodeView, ResendVerificationCodeView, UserProfileSettingsAPIView, UpdateReadingProgressView, \
                     UserMainPageSettingsView
                     )
@@ -68,7 +68,6 @@ urlpatterns = [
 
         path('settings/notifications/', NotificationSettingsAPIView.as_view(), name='settings-notifications'), # Настройки уведомлений пользователя
         path('settings/notifications/update/', UpdateNotificationSettingsView.as_view(), name='update-notification-settings'),
-        path('settings/notifications/news/', UserNotificationSettingsView.as_view(), name='user_notification_news_settings'),
 
         path('<str:username>/notifications/', UserNotificationsAPIView.as_view(), name='user-notifications-api'), # Уведомления пользователя (список уведов)
 

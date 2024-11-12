@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, WebPageSettings, Notification, PersonalReaderSettings, ReadingProgress, \
-    NotificationSetting, WalletTransaction, UsersNotificationSettings, UserMainPageSettings
+    NotificationSettings, WalletTransaction, UserMainPageSettings
 from store.models import Book, Genre, Series, Comment, BookUpvote, Review
 from .helpers import FollowerHelper
 from django.utils.formats import date_format
@@ -379,7 +379,6 @@ class UserProfileSettingsSerializer(serializers.Serializer):
         return data
 
 
-
 class PrivacySettingsSerializer(serializers.ModelSerializer):
     current_email = serializers.ReadOnlyField(source='user.email')
 
@@ -435,12 +434,12 @@ class PasswordChangeRequestSerializer(serializers.Serializer):
 class NotificationSerializer(serializers.ModelSerializer):
     formatted_timestamp = serializers.SerializerMethodField()
     book_id = serializers.IntegerField(source='book.id', read_only=True)
-    message = serializers.SerializerMethodField()
-
-    from django.utils import timezone
-    from datetime import timedelta
+    message = serializers.CharField(read_only=True)
 
     def get_formatted_timestamp(self, obj):
+        from django.utils import timezone
+        from datetime import timedelta
+
         time_difference = timezone.now() - obj.timestamp
         if time_difference < timedelta(minutes=1):
             return "just now"
@@ -450,63 +449,36 @@ class NotificationSerializer(serializers.ModelSerializer):
             return f"{time_difference.seconds // 3600} hours ago"
         elif time_difference < timedelta(days=30):
             return f"{time_difference.days} days ago"
-        elif time_difference < timedelta(days=60):
-            return f"1 month ago"
-        elif time_difference < timedelta(days=90):
-            return f"2 months ago"
-        elif time_difference < timedelta(days=120):
-            return f"3 months ago"
-        elif time_difference < timedelta(days=150):
-            return f"4 months ago"
-        elif time_difference < timedelta(days=180):
-            return f"5 months ago"
-        elif time_difference < timedelta(days=360):
-            return f"half a year ago"
-        elif time_difference < timedelta(days=720):
-            return f"a year ago"
+        elif time_difference < timedelta(days=365):
+            months = time_difference.days // 30
+            return f"{months} months ago" if months > 1 else "1 month ago"
         else:
-            return obj.timestamp.strftime('%d.%m.%Y')
-
-    def get_message(self, obj):
-        return obj.message
+            years = time_difference.days // 365
+            return f"{years} years ago" if years > 1 else "1 year ago"
 
     class Meta:
         model = Notification
-        fields = ['id', 'recipient', 'sender', 'notification_type', 'read', 'formatted_timestamp', 'book_name',
+        fields = ['id', 'recipient', 'sender', 'notification_type', 'read', 'formatted_timestamp',
                   'chapter_title', 'message', 'book_id']
 
 
 class NotificationSettingSerializer(serializers.ModelSerializer):
     class Meta:
-        model = NotificationSetting
+        model = NotificationSettings
         fields = [
+            'chapter_notification_threshold',
             'group_by_author',
-          #  'show_book_updates',
             'show_author_updates',
             'newbooks',
-            'library_reading_updates',  # Updated field name
-            'library_wishlist_updates',  # Updated field name
-            'library_liked_updates',  # Updated field name
+            'library_reading_updates',
+            'library_wishlist_updates',
+            'library_liked_updates',
+            'library_favourite_updates',
             'show_review_updates',
             'show_comment_updates',
             'show_follower_updates',
             'show_response_updates',
         ]
-
-
-class UserNotificationSettingsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UsersNotificationSettings
-        fields = ['notify_reading', 'notify_liked', 'notify_wishlist', 'notify_favorites', 'chapter_notification_threshold']
-
-    def update(self, instance, validated_data):
-        instance.notify_reading = validated_data.get('notify_reading', instance.notify_reading)
-        instance.notify_liked = validated_data.get('notify_liked', instance.notify_liked)
-        instance.notify_wishlist = validated_data.get('notify_wishlist', instance.notify_wishlist)
-        instance.notify_favorites = validated_data.get('notify_favorites', instance.notify_favorites)
-        instance.chapter_notification_threshold = validated_data.get('chapter_notification_threshold', instance.chapter_notification_threshold)
-        instance.save()
-        return instance
 
 
 class ProfileDescriptionSerializer(serializers.ModelSerializer):
@@ -579,3 +551,12 @@ class UserMainPageSettingsSerializer(serializers.ModelSerializer):
             'restricted_mode',
             'view_mode',
         ]
+
+
+class PasswordChangeVerificationSerializer(serializers.Serializer):
+    verification_code = serializers.CharField(max_length=6, required=True)
+
+    def validate_verification_code(self, value):
+        if not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError("Invalid verification code.")
+        return value

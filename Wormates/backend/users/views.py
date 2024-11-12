@@ -1,11 +1,14 @@
+import datetime
 import os
 from datetime import timezone
+from django.utils import timezone
 from decimal import Decimal
 
 import random
 import re
 from django.contrib.auth import authenticate
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db.models import Q, Count
@@ -29,16 +32,17 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_decode
 
-from .models import Achievement, Notification, Conversation, Message, Profile,NotificationSetting, \
+from .models import Achievement, Notification, Conversation, Message, Profile, NotificationSettings, \
     WebPageSettings, Library, EmailVerification, Wallet, StripeCustomer, PersonalReaderSettings, \
-    UsersNotificationSettings, VerificationCode, WalletTransaction, ReadingProgress, UserMainPageSettings
+    VerificationCode, WalletTransaction, ReadingProgress, UserMainPageSettings, PasswordChangeRequest, \
+    UserBookChapterNotification
 
 from .serializers import CustomUserRegistrationSerializer, UserSerializer, CustomUserLoginSerializer, ProfileSerializer, \
     LibraryBookSerializer, AuthoredBookSerializer, ParentCommentSerializer, CommentSerializer, ReviewSerializer, \
     UserProfileSettingsSerializer, NotificationSerializer, PrivacySettingsSerializer, PasswordChangeRequestSerializer, \
-    NotificationSerializer, NotificationSettingSerializer, UserNotificationSettingsSerializer, ProfileDescriptionSerializer, \
+    NotificationSerializer, NotificationSettingSerializer, ProfileDescriptionSerializer, \
     MyTokenObtainPairSerializer, FollowSerializer, WalletTransactionSerializer, SeriesSerializer, PersonalReaderSettingsSerializer, \
-    ReadingProgressSerializer, UserMainPageSettingsSerializer
+    ReadingProgressSerializer, UserMainPageSettingsSerializer, PasswordChangeVerificationSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -654,7 +658,7 @@ class NotificationSettingsAPIView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         # Ensure that a NotificationSetting instance exists for the user
-        obj, created = NotificationSetting.objects.get_or_create(user=self.request.user)
+        obj, created = NotificationSettings.objects.get_or_create(user=self.request.user)
         return obj
 
 
@@ -667,7 +671,7 @@ class UpdateNotificationSettingsView(APIView):
 
         if serializer.is_valid():
             # Assuming the NotificationSetting model has a OneToOne relation with User
-            notification_settings, created = NotificationSetting.objects.get_or_create(user=user)
+            notification_settings, created = NotificationSettings.objects.get_or_create(user=user)
             # Update the instance with validated data
             for attr, value in serializer.validated_data.items():
                 setattr(notification_settings, attr, value)
@@ -696,20 +700,18 @@ class UserNotificationSettingsView(APIView):
 
 
 class UserNotificationsAPIView(APIView):
-    def get(self, request, username, *args, **kwargs):
-        user = get_object_or_404(User, username=username)
+    permission_classes = [IsAuthenticated]
 
-        # Ensure the authenticated user is the same as the user whose notifications are being requested
-        if request.user != user:
-            return Response({'error': 'You do not have permission to access these notifications.'},
-                            status=status.HTTP_403_FORBIDDEN)
+    def get(self, request, *args, **kwargs):
+        user = request.user
 
         notifications = Notification.objects.filter(recipient=user.profile).order_by('-timestamp')
         serializer = NotificationSerializer(notifications, many=True)
         return Response(serializer.data)
 
 
-@api_view(['POST'])
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
 def read_notification(request, notification_id):
     notification = get_object_or_404(Notification, id=notification_id, recipient=request.user.profile)
     notification.read = True
@@ -725,46 +727,61 @@ def notification_count(request):
 
 
 def notify_users_of_new_chapter(book):
-    # Retrieve the latest published chapter
-    new_chapter = book.chapters.filter(published=True).order_by('-created').first()
-    new_chapter_count = book.chapters.filter(published=True).count()
-
-    if new_chapter is None:
-        return  # If no chapter is found or none are published, exit the function
-
-    new_chapter_title = new_chapter.title
-
-    # Identify users based on their preferences and relation to the book
+    # Получаем всех пользователей, которые следят за книгой
     interested_users = User.objects.filter(
-        Q(library__reading_books=book, notification_settings__notify_reading=True) |
-        Q(library__liked_books=book, notification_settings__notify_liked=True) |
-        Q(library__wish_list_books=book, notification_settings__notify_wishlist=True) |
-        Q(library__favorites_books=book, notification_settings__notify_favorites=True),
-        notification_settings__chapter_notification_threshold__lte=new_chapter_count
+        Q(library__reading_books=book) |
+        Q(library__wish_list_books=book) |
+        Q(library__liked_books=book) |
+        Q(library__favorites_books=book)
     ).distinct()
 
-    # Create notifications for these users
     for user in interested_users:
-        Notification.objects.create(
-            recipient=user.profile,
-            notification_type='book_update',
-            book=book,
-            chapter=new_chapter,  # Now include the chapter in the notification
-            message=f"{book.name}: {new_chapter_title} has been added."
-        )
+        settings = user.notification_settings
+
+        # Проверяем настройки уведомлений пользователя
+        should_notify = False
+        if settings.library_reading_updates and book in user.library.reading_books.all():
+            should_notify = True
+        elif settings.library_wishlist_updates and book in user.library.wish_list_books.all():
+            should_notify = True
+        elif settings.library_liked_updates and book in user.library.liked_books.all():
+            should_notify = True
+        elif settings.library_favourite_updates and book in user.library.favorites_books.all():
+            should_notify = True
+
+        if should_notify:
+            # Обновляем или создаём запись в UserBookChapterNotification
+            ubcn, created = UserBookChapterNotification.objects.get_or_create(user=user, book=book)
+            total_chapters = book.chapters.filter(published=True).count()
+            new_chapters = total_chapters - ubcn.chapter_count_at_last_notification
+
+            if new_chapters >= settings.chapter_notification_threshold:
+                # Создаём уведомление
+                Notification.objects.create(
+                    recipient=user.profile,
+                    notification_type='book_update',
+                    book=book,
+                    message=f"{book.name} has new updates."
+                )
+
+                # Обновляем счетчик прочитанных глав
+                ubcn.chapter_count_at_last_notification = total_chapters
+                ubcn.save()
 
 
 def notify_author_followers(author, update_type, book=None):
-    followers = User.objects.filter(following__user=author)
+    followers = User.objects.filter(following__user=author).select_related('profile')
 
+    notifications = []
     for follower in followers:
-        Notification.objects.create(
+        notifications.append(Notification(
             recipient=follower.profile,
             sender=author.profile,
             notification_type='author_update',
-            book=book,  # Optional: Include the book if the update is related to a specific book
-            message=f"{author.username} has a new {update_type}."  # Customize the message as needed
-        )
+            book=book,
+            message=f"{author.username} has a new {update_type}."
+        ))
+    Notification.objects.bulk_create(notifications)
 
 
 class TokenCheckView(APIView):
@@ -984,38 +1001,61 @@ class PasswordChangeRequestView(APIView):
         serializer = PasswordChangeRequestSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             user = request.user
-            new_password = serializer.validated_data['new_password']  # Store it in plain text
+            new_password = serializer.validated_data['new_password']
+
+            # Генерируем проверочный код
             code = str(random.randint(100000, 999999))
-            TemporaryPasswordStorage.create_for_user(user, new_password, code)
+
+            # Захешируем новый пароль
+            hashed_new_password = make_password(new_password)
+
+            # Устанавливаем время истечения срока действия кода (например, через 15 минут)
+            expires_at = timezone.now() + datetime.timedelta(minutes=15)
+
+            # Сохраняем запрос на изменение пароля
+            PasswordChangeRequest.objects.create(
+                user=user,
+                verification_code=code,
+                hashed_new_password=hashed_new_password,
+                expires_at=expires_at
+            )
+
+            # Отправляем проверочный код пользователю (например, по электронной почте)
             send_verification_email(user, code)
-            return Response({'status': 'Verification code sent.'}, status=200)
-        return Response(serializer.errors, status=400)
+
+            return Response({'status': 'Verification code sent.'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PasswordChangeVerificationView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, *args, **kwargs):
-        serializer = PasswordChangeVerificationSerializer(data=request.data, context={'request': request})
+    def post(self, request):
+        serializer = PasswordChangeVerificationSerializer(data=request.data)
         if serializer.is_valid():
             user = request.user
-            temp_storage = TemporaryPasswordStorage.objects.get(user=user)
-            if not temp_storage.is_expired:
-                plain_new_password = temp_storage.hashed_new_password  # Retrieve the plain new password
+            verification_code = serializer.validated_data['verification_code']
 
-                user.set_password(plain_new_password)  # This will hash the password
-                user.save()
-                temp_storage.delete()
+            try:
+                temp_request = PasswordChangeRequest.objects.get(user=user, verification_code=verification_code)
+            except PasswordChangeRequest.DoesNotExist:
+                return Response({'error': 'Invalid verification code.'}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Verifying if the new password works
-                if authenticate(username=user.username, password=plain_new_password):
-                    # Now using the plain new password for verification
-                    return Response({'status': 'Password updated successfully'}, status=200)
-                else:
-                    return Response({'error': 'New password verification failed'}, status=400)
-            else:
-                return Response({'error': 'Verification code expired'}, status=400)
-        return Response(serializer.errors, status=400)
+            if temp_request.is_expired():
+                temp_request.delete()
+                return Response({'error': 'Verification code has expired.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Устанавливаем новый пароль
+            user.password = temp_request.hashed_new_password
+            user.save()
+
+            # Удаляем временный запрос
+            temp_request.delete()
+
+            return Response({'status': 'Password updated successfully.'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 
 class DepositView(APIView):
