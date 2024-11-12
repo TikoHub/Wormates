@@ -304,7 +304,7 @@ def get_book_content(request, book_id):
     except Book.DoesNotExist:
         return Response({'error': 'Book not found'}, status=404)
 
-    serializer = BookContentSerializer(book, context={'request': request})
+    serializer = BookContentSerializer(book)
     return Response(serializer.data)
 
 

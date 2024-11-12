@@ -90,10 +90,8 @@ class NotificationSettings(models.Model):
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_settings')
-
     chapter_notification_threshold = models.IntegerField(default=1, choices=CHAPTER_NOTIFICATION_CHOICES)
 
-    # Дополнительные настройки
     group_by_author = models.BooleanField(default=True)
     show_author_updates = models.BooleanField(default=True)
     newbooks = models.BooleanField(default=False)
