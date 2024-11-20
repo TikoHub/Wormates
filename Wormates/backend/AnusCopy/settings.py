@@ -286,7 +286,7 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
-CHANNEL_LAYERS = {
+CHANNEL_LAYERS = {            # Это для вебсокетов в комментариях
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {

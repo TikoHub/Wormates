@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
+from users.helpers import FollowerHelper
 
 User = get_user_model()
 
@@ -118,17 +119,17 @@ class Book(models.Model):
             return True
         elif self.comment_access == 'private':
             return False
-        elif self.comment_access == 'followers' and user in self.author.profile.followers.all():
-            return True
+        elif self.comment_access == 'followers':
+            return FollowerHelper.is_following(user, self.author)
         return False
 
     def can_user_download(self, user):
-        if self.download_access == 'public':
+        if self.comment_access == 'public':
             return True
-        elif self.download_access == 'private':
+        elif self.comment_access == 'private':
             return False
-        elif self.download_access == 'followers' and user in self.author.profile.followers.all():
-            return True
+        elif self.comment_access == 'followers':
+            return FollowerHelper.is_following(user, self.author)
         return False
 
     @property

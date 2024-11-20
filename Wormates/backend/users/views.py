@@ -92,7 +92,7 @@ class VerifyEmailCodeView(APIView):
 
     def post(self, request):
         email = request.data.get('email')
-        code = request.data.get('code')
+        code = request.data.get('verification_code')
         if not email or not code:
             return Response({'error': 'You must provide an email and code'}, status=status.HTTP_400_BAD_REQUEST)
         try:

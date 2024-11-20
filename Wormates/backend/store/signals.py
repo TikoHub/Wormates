@@ -6,6 +6,8 @@ from django.contrib.auth.models import User
 from django.db.models import Max
 from users.views import notify_users_of_new_chapter
 
+from users.notification_utils import send_book_update_notifications
+
 
 @receiver(post_save, sender=CommentLike)
 @receiver(post_save, sender=CommentDislike)
@@ -57,8 +59,13 @@ def send_comment_notification(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=Book)
-def book_update_notification(sender, instance, **kwargs):
-    instance.notify_users()
+def book_update_notification(sender, instance, created, **kwargs):
+    if not created:
+        # Здесь вы можете добавить условия, при которых нужно отправлять уведомления
+        latest_chapter = instance.chapters.order_by('-created').first()
+        if latest_chapter and latest_chapter.published:
+            chapter_title = latest_chapter.title
+            send_book_update_notifications(instance, chapter_title)
 
 
 @receiver(post_save, sender=Book)

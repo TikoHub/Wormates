@@ -33,7 +33,10 @@
     width: 30%;
     font-size: 12px;
 }
-
+.register_error{
+  color: red;
+  font-size: 10px;
+}
 
 .dob_month_mobile{
     padding: 0;

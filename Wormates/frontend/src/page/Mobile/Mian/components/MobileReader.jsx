@@ -38,41 +38,36 @@ function MobileReader(){
     const [scrollDelta, setScrollDelta] = useState(0);
     const scrollThreshold = 50; // Порог в пикселях для изменения видимости header
     const [isChapterChanging, setIsChapterChanging] = useState(false);
+    
 
     useEffect(() => {
-      const handleScroll = () => {
-          const currentScrollY = window.scrollY;
-  
-          // Вычисляем новое значение scrollDelta на основе текущего и последнего значений
-          const newScrollDelta = lastScrollY - currentScrollY;
-  
-          // Проверка, если идет смена главы
-          if (isChapterChanging) {
-              // Если идет смена главы, не показываем хедер
-              return;
-          }
-  
-          // Устанавливаем фиксированное значение порога
-          const threshold = 2; // фиксированное значение порога
-  
-          // Проверяем значение newScrollDelta
-          if (newScrollDelta > threshold) {
-              // Прокрутка вверх, показываем header
-              setShowHeader(true);
-          } else if (newScrollDelta < -threshold) {
-              // Прокрутка вниз, скрываем header
-              setShowHeader(false);
-          }
-  
-          // Обновляем последнее значение скролла
-          setLastScrollY(currentScrollY);
-      };
-  
-      window.addEventListener('scroll', handleScroll);
-  
-      return () => window.removeEventListener('scroll', handleScroll);
-  }, [lastScrollY, isChapterChanging]); // Убираем scrollDelta из зависимостей
+        const handleScroll = () => {
+            // Проверка: если меню глав открыто, выходим из функции
+            if (chapterList) {
+                return;
+            }
     
+            const currentScrollY = window.scrollY;
+            const newScrollDelta = lastScrollY - currentScrollY;
+            const threshold = 2;
+    
+            if (isChapterChanging) {
+                return;
+            }
+    
+            if (newScrollDelta > threshold) {
+                setShowHeader(true);
+            } else if (newScrollDelta < -threshold) {
+                setShowHeader(false);
+            }
+    
+            setLastScrollY(currentScrollY);
+        };
+    
+        window.addEventListener('scroll', handleScroll);
+    
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [lastScrollY, isChapterChanging, chapterList]);
 
     const increaseLineHeight = () => {
         setLineHeight(prev => prev + 0.1); // увеличиваем высоту на 0.1
@@ -120,6 +115,7 @@ function MobileReader(){
     
         fetchChapters();
       }, [apiUrl, book_id, token]);
+
     
 
       const handleNextChapter = () => {

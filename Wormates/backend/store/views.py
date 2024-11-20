@@ -1092,8 +1092,8 @@ class CommentListCreateView(APIView):
         serializer = CreateCommentSerializer(data=data, context={'request': request})
         if serializer.is_valid():
             new_comment = serializer.save(user=request.user)
-            # Send the new comment to all users subscribed to this book's comments
-            channel_layer = get_channel_layer()
+            # Вебсокет но для него требуется сервер отдельный редис с отдельной настройкой
+            '''channel_layer = get_channel_layer()
             group_name = f'comments_{book_id}'
             async_to_sync(channel_layer.group_send)(
                 group_name,
@@ -1101,7 +1101,7 @@ class CommentListCreateView(APIView):
                     'type': 'new_comment',
                     'message': StudioCommentSerializer(new_comment, context={'request': request}).data
                 }
-            )
+            )'''
             return Response(StudioCommentSerializer(new_comment, context={'request': request}).data,
                             status=status.HTTP_201_CREATED)
         else:
@@ -1673,11 +1673,12 @@ def parse_fb2_and_create_chapters(file_path, book):
             raise ValueError("No sections found in the FB2 file.")
 
         for section in sections:
-            title_element = section.find('.//fb:title', namespaces=ns)
+            title_element = section.find('./fb:title', namespaces=ns)
             title = "".join(title_element.itertext()) if title_element is not None else "Untitled Chapter"
 
             content = ""
-            paragraphs = section.findall('.//fb:p', namespaces=ns)
+            # Ищем все параграфы внутри секции, но исключаем те, которые находятся внутри <title>
+            paragraphs = section.xpath('./fb:section/*[not(self::fb:title)]//fb:p | ./fb:p', namespaces=ns)
             if not paragraphs:
                 print(f"No paragraphs found in section titled '{title}'.")
                 continue  # Пропускаем секцию без содержимого
@@ -1710,19 +1711,33 @@ def parse_docx_and_create_chapters(file_path, book):
     doc = Document(file_path)
     chapters = []
     current_chapter = []
-    chapter_number = 0
+    chapter_title = None
+    last_chapter_number = 0
+
+    # Регулярное выражение для поиска заголовков глав на английском языке
+    chapter_heading_patterns = [
+        r'^chapter\s+\d+',          # "Chapter 1"
+        r'^chapter\s+[ivx]+',       # "Chapter IX"
+        r'^chapter\s+\w+',          # "Chapter One"
+        r'^ch\.\s*\d+',             # "Ch. 1"
+        r'^\d+\.\s',                # "1. Introduction"
+        r'^\w+\s*$'                 # Single word titles
+    ]
 
     for para in doc.paragraphs:
-        if re.match(r'Chapter \d+|CHAPTER \d+|\d+\.', para.text.strip()):
+        para_text = para.text.strip()
+        # Проверяем, является ли параграф заголовком главы
+        if any(re.match(pattern, para_text, re.IGNORECASE) for pattern in chapter_heading_patterns):
             if current_chapter:
-                chapters.append((f"Chapter {chapter_number}", '\n'.join(current_chapter)))
-            chapter_number += 1
-            current_chapter = [para.text]
+                chapters.append((chapter_title or f"Chapter {last_chapter_number}", '\n'.join(current_chapter)))
+                current_chapter = []
+            chapter_title = para_text
+            last_chapter_number += 1
         else:
-            current_chapter.append(para.text)
+            current_chapter.append(para_text)
 
     if current_chapter:
-        chapters.append((f"Chapter {chapter_number}", '\n'.join(current_chapter)))
+        chapters.append((chapter_title or f"Chapter {last_chapter_number}", '\n'.join(current_chapter)))
 
     if not chapters:
         # Если главы не найдены, создаем одну главу с полным текстом
@@ -1736,67 +1751,155 @@ def parse_docx_and_create_chapters(file_path, book):
             updated=timezone.now(),
             published=False
         )
+        print("No chapters found in the DOCX file. Created a single chapter with full content.")
     else:
         for i, (title, content) in enumerate(chapters, start=1):
             Chapter.objects.create(
                 book=book,
-                title=title,
+                title=title or f"Chapter {i}",
                 content=content.strip(),
                 chapter_number=i,
                 created=timezone.now(),
                 updated=timezone.now(),
                 published=False
             )
-
-    if not chapters:
-        print("No chapters found in the DOCX file. Created a single chapter with full content.")
+        print(f"Created {len(chapters)} chapters from DOCX file.")
 
 
 def parse_pdf_and_create_chapters(file_path, book):
     doc = fitz.open(file_path)
-    full_text = ""
-    for page in doc:
-        full_text += page.get_text()
+    toc = doc.get_toc()
 
-    # Пытаемся разделить на главы
-    chapters = re.split(r'\bChapter \d+|\bCHAPTER \d+', full_text)
+    if toc:
+        # Используем оглавление PDF для разделения на главы
+        chapters = []
+        for idx, entry in enumerate(toc):
+            level, title, page_num = entry
+            start_page = page_num - 1  # Нумерация страниц начинается с 0
+            if idx + 1 < len(toc):
+                end_page = toc[idx + 1][2] - 2
+            else:
+                end_page = len(doc) - 1
 
-    if len(chapters) <= 1:
-        # Если главы не найдены, создаем одну главу с полным текстом
-        Chapter.objects.create(
-            book=book,
-            title="Full Text of PDF",
-            content=full_text.strip(),
-            chapter_number=1,
-            created=timezone.now(),
-            updated=timezone.now(),
-            published=False
-        )
-    else:
+            content = ""
+            for page in range(start_page, end_page + 1):
+                content += doc.load_page(page).get_text()
+
+            chapters.append((title.strip(), content.strip()))
+
         # Создаем главы
-        for i, chapter_content in enumerate(chapters[1:],
-                                            start=1):  # Пропускаем первый элемент, так как он может быть пустым
+        for i, (title, content) in enumerate(chapters, start=1):
+            if content:
+                Chapter.objects.create(
+                    book=book,
+                    title=title or f"Chapter {i}",
+                    content=content,
+                    chapter_number=i,
+                    created=timezone.now(),
+                    updated=timezone.now(),
+                    published=False
+                )
+        print(f"Created {len(chapters)} chapters from PDF file using TOC.")
+    else:
+        # Если оглавление отсутствует, пытаемся разделить по заголовкам глав
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+
+        # Используем регулярное выражение для поиска заголовков глав
+        chapter_heading_pattern = re.compile(
+            r'(Chapter\s+\d+|CHAPTER\s+\d+|Chapter\s+[IVX]+|CHAPTER\s+[IVX]+|Chapter\s+\w+|CHAPTER\s+\w+)',
+            re.IGNORECASE
+        )
+
+        matches = list(chapter_heading_pattern.finditer(full_text))
+
+        if matches:
+            chapters = []
+            for idx, match in enumerate(matches):
+                title = match.group().strip()
+                start_idx = match.end()
+                end_idx = matches[idx + 1].start() if idx + 1 < len(matches) else len(full_text)
+                content = full_text[start_idx:end_idx].strip()
+                if content:
+                    chapters.append((title, content))
+
+            # Создаем главы
+            for i, (title, content) in enumerate(chapters, start=1):
+                Chapter.objects.create(
+                    book=book,
+                    title=title,
+                    content=content,
+                    chapter_number=i,
+                    created=timezone.now(),
+                    updated=timezone.now(),
+                    published=False
+                )
+            print(f"Created {len(chapters)} chapters from PDF file using regex.")
+        else:
+            # Если главы не найдены, создаем одну главу с полным текстом
             Chapter.objects.create(
                 book=book,
-                title=f"Chapter {i}",
-                content=chapter_content.strip(),
-                chapter_number=i,
+                title="Full Text",
+                content=full_text.strip(),
+                chapter_number=1,
                 created=timezone.now(),
                 updated=timezone.now(),
                 published=False
             )
+            print("No chapters found in the PDF file. Created a single chapter with full content.")
 
     doc.close()
 
 
 def parse_txt_and_create_chapters(file_path, book):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        text = file.read()
+    import chardet
+    # Определяем кодировку файла
+    with open(file_path, 'rb') as f:
+        raw_data = f.read()
+        result = chardet.detect(raw_data)
+        encoding = result['encoding']
+        confidence = result['confidence']
+        print(f"Detected file encoding: {encoding} with confidence {confidence}")
 
-    # Пытаемся найти главы по разным паттернам
-    chapters = re.split(r'\bChapter \d+|\bCHAPTER \d+|\n\d+\.\s', text)
+        # Если не удалось определить кодировку или уверенность низкая, используем кодировку по умолчанию
+        if encoding is None or confidence < 0.8:
+            encoding = 'utf-8'
+            print("Using default encoding: utf-8")
 
-    if len(chapters) <= 1:
+    # Читаем файл с определённой кодировкой
+    try:
+        with open(file_path, 'r', encoding=encoding) as file:
+            text = file.read()
+    except UnicodeDecodeError:
+        # Если ошибка декодирования, пытаемся с кодировкой 'latin-1'
+        print(f"Failed to decode with encoding {encoding}, trying 'latin-1'")
+        with open(file_path, 'r', encoding='latin-1') as file:
+            text = file.read()
+
+    # Разделяем текст на главы
+    chapter_heading_pattern = re.compile(
+        r'(Chapter\s+\d+|CHAPTER\s+\d+|Chapter\s+[IVX]+|CHAPTER\s+[IVX]+|Chapter\s+\w+|CHAPTER\s+\w+)',
+        re.IGNORECASE
+    )
+    chapters = chapter_heading_pattern.split(text)
+
+    if len(chapters) > 1:
+        # Первой в списке может быть пролог или введение
+        for i in range(1, len(chapters), 2):
+            title = chapters[i].strip()
+            content = chapters[i+1].strip() if i+1 < len(chapters) else ''
+            Chapter.objects.create(
+                book=book,
+                title=title,
+                content=content,
+                chapter_number=(i+1)//2,
+                created=timezone.now(),
+                updated=timezone.now(),
+                published=False
+            )
+        print(f"Created {(len(chapters)-1)//2} chapters from TXT file using regex.")
+    else:
         # Если главы не найдены, создаем одну главу с полным текстом
         Chapter.objects.create(
             book=book,
@@ -1807,56 +1910,111 @@ def parse_txt_and_create_chapters(file_path, book):
             updated=timezone.now(),
             published=False
         )
-    else:
-        for i, chapter_content in enumerate(chapters[1:],
-                                            start=1):  # Пропускаем первый элемент, так как он может быть пустым
-            title = f"Chapter {i}"
-            content = chapter_content.strip()
-
-            Chapter.objects.create(
-                book=book,
-                title=title,
-                content=content,
-                chapter_number=i,
-                created=timezone.now(),
-                updated=timezone.now(),
-                published=False
-            )
-
-    if len(chapters) <= 1:
         print("No chapters found in the TXT file. Created a single chapter with full content.")
 
 
 def parse_epub_and_create_chapters(file_path, book):
+    import os
+    import zipfile
+    from bs4 import BeautifulSoup
+    from django.utils import timezone
+    from django.db.models import Max
+    from .models import Chapter
+
     with zipfile.ZipFile(file_path, 'r') as zf:
-        # Предполагаем, что названия файлов глав могут заканчиваться на '.html' или '.xhtml'
-        epub_files = [f for f in zf.namelist() if f.endswith(('.html', '.xhtml'))]
+        # Читаем container.xml, чтобы найти путь к файлу OPF
+        with zf.open('META-INF/container.xml') as container_file:
+            container_soup = BeautifulSoup(container_file, 'xml')
+            rootfile = container_soup.find('rootfile')
+            opf_path = rootfile['full-path']
+
+        # Открываем файл OPF
+        with zf.open(opf_path) as opf_file:
+            opf_soup = BeautifulSoup(opf_file, 'xml')
+            manifest_items = opf_soup.find_all('item')
+            manifest = {item['id']: item['href'] for item in manifest_items}
+
+            # Ищем элемент TOC
+            toc_item = opf_soup.find('item', {'properties': 'nav'})
+            if toc_item:
+                toc_href = toc_item['href']
+            else:
+                toc_item = opf_soup.find('item', {'media-type': 'application/x-dtbncx+xml'})
+                if toc_item:
+                    toc_href = toc_item['href']
+                else:
+                    print("TOC not found in EPUB file.")
+                    return
+
+        # Вычисляем путь к файлу TOC
+        opf_dir = os.path.dirname(opf_path)
+        toc_file_path = os.path.normpath(os.path.join(opf_dir, toc_href))
+
+        # Открываем файл TOC
+        with zf.open(toc_file_path) as toc_file:
+            toc_soup = BeautifulSoup(toc_file, 'xml')
+
+            # Обрабатываем navPoints
+            nav_points = toc_soup.find_all('navPoint')
+            if not nav_points:
+                print("No navPoints found in TOC.")
+                return
+
+            chapters_info = []
+            for nav_point in nav_points:
+                nav_label = nav_point.find('text').text.strip()
+                content_src = nav_point.content['src']
+                chapters_info.append({'title': nav_label, 'src': content_src})
 
         last_chapter_number = book.chapters.aggregate(Max('chapter_number'))['chapter_number__max'] or 0
 
-        for filename in epub_files:
-            with zf.open(filename) as file:
-                soup = BeautifulSoup(file, 'html.parser')
-                title = soup.title.string if soup.title else "Untitled Chapter"
+        for chapter_info in chapters_info:
+            # Обработка пути к файлу содержимого
+            content_src = chapter_info['src'].split('#')[0]
+            content_file_path = os.path.normpath(os.path.join(opf_dir, content_src))
 
-                # Используем метод get_text() для извлечения чистого текста
-                content = soup.body.get_text(separator=' ', strip=True) if soup.body else ""
+            with zf.open(content_file_path) as file:
+                soup = BeautifulSoup(file, 'html.parser')
+
+                # Удаляем заголовок из содержимого главы
+                if soup.body:
+                    # Предполагаем, что заголовок находится в первом <h1>, <h2> или <h3>
+                    for tag_name in ['h1', 'h2', 'h3']:
+                        header = soup.body.find(tag_name)
+                        if header and header.get_text(strip=True).strip().lower() == chapter_info['title'].lower():
+                            header.decompose()
+                            break
+
+                    # Собираем содержимое главы с сохранением абзацев
+                    content_parts = []
+                    for element in soup.body.descendants:
+                        if isinstance(element, str):
+                            continue  # Пропускаем текстовые узлы вне тегов
+                        if element.name in ['p', 'div', 'h1', 'h2', 'h3', 'blockquote']:
+                            text = element.get_text(strip=True)
+                            if text:
+                                content_parts.append(text)
+                    content = '\n\n'.join(content_parts)
+                else:
+                    content = ""
 
                 next_chapter_number = last_chapter_number + 1
-                last_chapter_number = next_chapter_number  # Обновляем номер последней главы для следующей итерации
+                last_chapter_number = next_chapter_number
 
                 Chapter.objects.create(
                     book=book,
-                    title=title,
+                    title=chapter_info['title'],
                     content=content,
                     chapter_number=next_chapter_number,
                     created=timezone.now(),
                     updated=timezone.now(),
                     published=False
                 )
+                print(f"Created chapter {next_chapter_number}: {chapter_info['title']}")
 
-    if not epub_files:
-        print("No HTML or XHTML files found in EPUB archive.")
+    # Если ни один файл не был обработан
+    if not chapters_info:
+        print("No chapters found in EPUB file.")
 
 
 def get_file_type_by_magic(file_path):

@@ -3,15 +3,9 @@ from django.dispatch import receiver
 from django.utils import timezone
 from decimal import Decimal
 from django.db import models
-from store.models import Book, Review, Comment
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.core.validators import FileExtensionValidator
-from django.core.files.images import get_image_dimensions
-from PIL import Image
-from io import BytesIO
-from django.core.files.uploadedfile import InMemoryUploadedFile
-from django.contrib.auth.hashers import make_password
 
 
 class Achievement(models.Model):
@@ -119,7 +113,7 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     about = models.CharField(max_length=500, blank=True)
     profileimg = models.ImageField(upload_to='profile_images', default='blank-profile-picture.png')
-    bookmarks = models.ManyToManyField(Review, related_name='bookmark_profiles', blank=True)
+    bookmarks = models.ManyToManyField('store.Review', related_name='bookmark_profiles', blank=True)
     achievements = models.ManyToManyField(Achievement, blank=True)
     blacklist = models.ManyToManyField(User, related_name="blacklisted_by", blank=True)
     auto_add_reading = models.BooleanField(default=True)
@@ -159,12 +153,12 @@ class FollowersCount(models.Model):
 
 class Library(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='library')
-    reading_books = models.ManyToManyField(Book, related_name='reading_users', blank=True)
-    liked_books = models.ManyToManyField(Book, related_name='liked_users', blank=True)
-    wish_list_books = models.ManyToManyField(Book, related_name='wishlist_users', blank=True)
-    favorites_books = models.ManyToManyField(Book, related_name='favorites_users', blank=True)
-    finished_books = models.ManyToManyField(Book, related_name='finished_users', blank=True)
-    purchased_books = models.ManyToManyField(Book, related_name='purchased_by_users', through='PurchasedBook', blank=True)
+    reading_books = models.ManyToManyField('store.Book', related_name='reading_users', blank=True)
+    liked_books = models.ManyToManyField('store.Book', related_name='liked_users', blank=True)
+    wish_list_books = models.ManyToManyField('store.Book', related_name='wishlist_users', blank=True)
+    favorites_books = models.ManyToManyField('store.Book', related_name='favorites_users', blank=True)
+    finished_books = models.ManyToManyField('store.Book', related_name='finished_users', blank=True)
+    purchased_books = models.ManyToManyField('store.Book', related_name='purchased_by_users', through='PurchasedBook', blank=True)
 
     def __str__(self):
         return f"Library - {self.user.username}"
@@ -178,7 +172,7 @@ class Library(models.Model):
 
 class PurchasedBook(models.Model):
     library = models.ForeignKey(Library, on_delete=models.CASCADE)
-    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    book = models.ForeignKey('store.Book', on_delete=models.CASCADE)
     purchase_date = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -222,7 +216,7 @@ class WalletTransaction(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     transaction_type = models.CharField(max_length=10, choices=[('deposit', 'Deposit'), ('withdraw', 'Withdraw'), ('purchase', 'Purchase')])
     timestamp = models.DateTimeField(auto_now_add=True)
-    related_purchase = models.ForeignKey(Book, null=True, blank=True, on_delete=models.SET_NULL)  # Only for purchase transactions
+    related_purchase = models.ForeignKey('store.Book', null=True, blank=True, on_delete=models.SET_NULL)  # Only for purchase transactions
 
     def __str__(self):
         return f"{self.wallet.profile.user.username} - {self.transaction_type} - {self.amount}"
@@ -320,7 +314,7 @@ class PersonalReaderSettings(models.Model):
 
 class ReadingProgress(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reading_progress')
-    book = models.ForeignKey(Book, on_delete=models.CASCADE)
+    book = models.ForeignKey('store.Book', on_delete=models.CASCADE)
     last_page = models.IntegerField(default=1)
     timestamp = models.DateTimeField(auto_now=True)
 
@@ -328,7 +322,7 @@ class ReadingProgress(models.Model):
         unique_together = ('user', 'book')
 
     def __str__(self):
-        return f"{self.user.username}'s progress on {self.book.title}"
+        return f"{self.user.username}'s progress on {self.book.name}"
 
 
 class UserMainPageSettings(models.Model):

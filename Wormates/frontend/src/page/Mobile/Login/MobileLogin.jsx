@@ -10,6 +10,7 @@ import apiUrl from '../../../apiUrl';
 function MobileLogin() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const[loginError, setLoginError] = useState(false);
     const navigate = useNavigate();
     const [loggedIn, setLoggedIn] = useState(false);
   
@@ -29,10 +30,11 @@ function MobileLogin() {
           setLoggedIn(true);
           navigate('/');
         } else {
-          console.error('Ошибка при входе', response);
+          setLoginError(true)
         }
       } catch (error) {
         console.error('Ошибка при входе', error);
+        setLoginError(true)
       }
     };
   
@@ -65,6 +67,12 @@ function MobileLogin() {
             </span>
           </Link>
           <form className="log-form">
+          {loginError ? (
+    <div className='login_error'> Invalid email or password</div>
+) : (
+    <div className='login_error_cost'></div>
+)}
+Объя
             <input
               type="email"
               placeholder="email"

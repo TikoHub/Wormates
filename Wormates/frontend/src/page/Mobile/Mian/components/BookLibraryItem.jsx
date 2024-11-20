@@ -57,7 +57,7 @@ const BookLibraryItem = ({ filterBy }) => {
             <div className='library__item_content'>
               <a href={`book_detail/${book.id}`}><div className='library_item-coverpage_mobile'><img src={book.coverpage} alt={book.name} /></div></a>
               <a href={`book_detail/${book.id}`}><div className='book-name_mobile'>{book.name}</div></a>
-              <div className='book-author'>{book.author}</div>
+              <a href={`/author/${book.author}`} className='book-author'>{book.author}</a>
             </div>
           </div>
         ))}

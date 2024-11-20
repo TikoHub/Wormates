@@ -17,7 +17,7 @@ function BookPageMobile() {
     const [isRewiewOpen, setIsRewiewOpen] = useState(false);
     const [items, setItems] = useState([]);
     const token = localStorage.getItem('token');
-  
+    const [showError, setShowError] = useState(false);
     const { book_id } = useParams();
     const [following, setFollowing] = useState(false);
     const [author, setAuthor] = useState('');
@@ -36,16 +36,18 @@ function BookPageMobile() {
       const fetchData = async () => {
         try {
           const bookResponse = await axios.get(`${apiUrl}/api/book_detail/${book_id}/`);
-          
+      
           if (bookResponse.status === 200) {
             setBookData(bookResponse.data);
             const { author } = bookResponse.data;
             setAuthor(author);
-          } else {
-  
           }
         } catch (error) {
-          console.error('Ошибка при получении данных', error);
+          if (error.response && error.response.status === 404) {
+            setShowError(true)
+          } else {
+            console.error('Ошибка при получении данных', error);
+          }
         }
       };
 
@@ -61,20 +63,19 @@ function BookPageMobile() {
 
         }
       }
-
       const itemData = async () => {
         try {
-          const response = await axios.get(`${apiUrl}/api/book_detail/${book_id}/content`); 
-          if (response.status === 200 && Array.isArray(response.data)) {
-
-            setItems(response.data);
-            console.log(response)
+          const response = await axios.get(`${apiUrl}/api/book_detail/${book_id}/content`);
+          if (response.status === 200 && Array.isArray(response.data.chapters)) {
+            setItems(response.data.chapters);  // Устанавливаем chapters напрямую
+            console.log(response.data.chapters);
+          } else {
+            console.error("Data format error:", response.data);
           }
         } catch (error) {
-
+          console.error("Error fetching data:", error);
         }
       };
-  
       const reviewsData = async () => {
         try {
           const response = await axios.get(`${apiUrl}/api/book_detail/${book_id}/reviews/`);
@@ -110,7 +111,10 @@ function BookPageMobile() {
     }, [book_id]);
   
   
-
+    const closeError = () => {
+      setShowError(false);
+    };
+  
   const followAuthor = async () => {
     try {
         await axios.post(`http://127.0.0.1:8000/users/api/${author}/follow/`, {}, {
@@ -157,11 +161,11 @@ function BookPageMobile() {
   const distributeItems = (items) => {
     const columns = [[], [], []];
     let itemsPerColumn = 10;
-
+  
     if (items.length > 30) {
       itemsPerColumn = Math.floor(items.length / 3);
     }
-
+  
     items.forEach((item, index) => {
       if (columns[0].length < itemsPerColumn) {
         columns[0].push(item);
@@ -171,10 +175,11 @@ function BookPageMobile() {
         columns[2].push(item);
       }
     });
-
+  
     return columns;
   };
-
+  
+  // Вызов распределения после получения данных
   const columns = distributeItems(items);
 
   const AddToLibrary = async () => {
@@ -197,7 +202,16 @@ function BookPageMobile() {
 };
     
     return(
-  
+        <div>
+                {showError ? ( <div className='bookpage__adult_error'>
+                  <div className='bookpage__adult_error_container'>
+                    <div className='bookpage__adult_text_views'>This Book is For <br/> <span>Adults</span> Only.</div>
+                    <div className='bookpage__adult_sign_views'>Please <Link to={'/login'} className='no_adult_link_login'>Sign In</Link> To <br/> Continue</div>
+                  </div>
+                  <Link to={`/`} className='bookpage__adult_back_button'><div class="adult_arrow_container">    <svg width="50" height="20">
+        <polygon points="20,0 0,10 20,20" class="adult_arrow" />
+    </svg></div> Back</Link>
+                </div>) : (
         <div className="bookpage__books_mobile">
             <div className='bookpage__coverpage_mobile' style={{ backgroundImage: `url(${bookData.coverpage})` }}>
             <div class="bookpage__menu_mobile">
@@ -283,7 +297,7 @@ function BookPageMobile() {
       <div key={columnIndex} className='chapter_items_colum_mobile'>
         {column.map((item, itemIndex) => (
           <div key={itemIndex} className='chapter_item_mobile'>
-            {item.genre}
+            {item.title.length > 20 ? item.title.slice(0, 20) + '...' : item.title}
           </div>
         ))}
       </div>
@@ -323,7 +337,8 @@ function BookPageMobile() {
 
             <div className='bookpage_menu_mobile'>Comments <button className='bookapage_menu_button_mobile'><div class="triangle-down_mobile"></div></button></div>
             <div className='bookpage_recomendations_mobile'></div>
-        </div>
+        </div>)}
+      </div>
     )
   }
 

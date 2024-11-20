@@ -17,6 +17,7 @@ function MobileRegister() {
     const [verification_code, setCode] = useState('');
     const [currentStep, setCurrentStep] = useState(1);
     const [timeLeft, setTimeLeft] = useState(59);
+    const [errors, setErrors] = useState({});
   
     useEffect(() => {
       let timer;
@@ -65,7 +66,11 @@ function MobileRegister() {
         });
         setCurrentStep(3);
       } catch (error) {
-        console.error('Ошибка регистрации:', error);
+        if (error.response && error.response.status === 400) {
+          setErrors(error.response.data);
+      } else {
+          console.error("Ошибка регистрации:", error);
+      }
       }
     };
     const CodeSubmit = async (e) => {
@@ -79,7 +84,6 @@ function MobileRegister() {
         navigate('/login')
     
       } catch (error) {
-        console.error('Ошибка регистрации:', error);
       }
     };
   
@@ -165,10 +169,13 @@ function MobileRegister() {
               <form onSubmit={handleSecondStepSubmit}>
                 <div>
                   <input type="email" placeholder='Email' name="Enter Your Email" className='register-name_mobile' value={email} onChange={(e) => setEmail(e.target.value)} />
+                  {errors.email && <div className="register_error">{errors.email}</div>}
                 </div>
                 <div>
                   <input type="password" placeholder='Choose Password' name="password" className='register-name_mobile' value={password} onChange={(e) => setPassword(e.target.value)} />
+                  {errors.password && <div className="register_error">{errors.password}</div>}
                   <input type="password" placeholder='Repeat password' name="password2" className='register-name_mobile' value={password2} onChange={(e) => setPassword2(e.target.value)} />
+                  {errors.password2 && <div className="register_error">{errors.password2}</div>}
                 </div>
                 <div className='register_button_container'>
                 <button className='next-button_mobile' type="button" onClick={() => setCurrentStep(1)}>Back</button>
