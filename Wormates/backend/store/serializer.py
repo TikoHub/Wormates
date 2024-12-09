@@ -14,6 +14,12 @@ from django.template.defaultfilters import date as _date
 import filetype
 
 
+class IllustrationShortSerializer(serializers.ModelSerializer): # Короткий сериализатор для карусели в book detail и на главной странице
+    class Meta:
+        model = Illustration
+        fields = ['id', 'image']
+
+
 class ChapterSerializers(serializers.ModelSerializer):       # Основной Чаптер Сериалайзер
 
     class Meta:
@@ -22,11 +28,11 @@ class ChapterSerializers(serializers.ModelSerializer):       # Основной 
 
 
 class ChapterSideSerializer(serializers.ModelSerializer):
-    book_name = serializers.CharField(source='book.name', read_only=True)  # Assuming the Book model has a 'name' attribute
+    name = serializers.CharField(source='book.name', read_only=True)  # Assuming the Book model has a 'name' attribute
 
     class Meta:
         model = Chapter
-        fields = ('id', 'title', 'book_name', 'is_free', 'published', 'content') #Content был добавлен для умной прогрузки
+        fields = ('id', 'title', 'name', 'is_free', 'published', 'content') #Content был добавлен для умной прогрузки
 
 
 class ChapterSummarySerializer(serializers.ModelSerializer):      # Для Book_Detail / Content
@@ -61,14 +67,14 @@ class BookCreateSerializer(serializers.ModelSerializer):
         return book
 
 
-class BookSerializer(serializers.ModelSerializer):     # Основной Сериализатор для Book_Detail
+class BookSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField()
     genre = serializers.SlugRelatedField(
         slug_field='name',
         queryset=Genre.objects.all()
     )
     subgenres = serializers.StringRelatedField(many=True)
-    series_name = serializers.SerializerMethodField(source='series.name', read_only=True)
+    series_name = serializers.SerializerMethodField(read_only=True)
     display_price = serializers.SerializerMethodField()
     upvotes = serializers.IntegerField(source='upvote_count', read_only=True)
     downvotes = serializers.IntegerField(source='downvote_count', read_only=True)
@@ -77,17 +83,21 @@ class BookSerializer(serializers.ModelSerializer):     # Основной Сер
     author_profile_img = serializers.SerializerMethodField()
     author_followers_count = serializers.SerializerMethodField()
     first_chapter_info = serializers.SerializerMethodField()
+    illustrations = serializers.SerializerMethodField()
 
-    def get_first_chapter_info(self, obj):
-        # Fetch the first chapter that is published, ordering by 'created' to ensure it's the earliest one
-        first_published_chapter = obj.chapters.filter(published=True).order_by('created').first()
-        if first_published_chapter:
-            return {
-                'id': first_published_chapter.id,
-                'title': first_published_chapter.title
-            }
-        else:
-            return {'error': 'No published chapters are available for this book.'}
+    # Добавляем поля из BookInfo
+    total_chapters = serializers.SerializerMethodField()
+    total_pages = serializers.SerializerMethodField()
+    formatted_last_modified = serializers.SerializerMethodField()
+
+    def get_total_chapters(self, obj):
+        return obj.chapters.count()
+
+    def get_total_pages(self, obj):
+        return obj.calculate_total_pages()
+
+    def get_formatted_last_modified(self, obj):
+        return obj.last_modified.strftime('%d.%m.%Y')
 
     def get_author_profile_img(self, obj):
         request = self.context.get('request')
@@ -112,12 +122,86 @@ class BookSerializer(serializers.ModelSerializer):     # Основной Сер
     def get_series_name(self, obj):
         return obj.series.name if obj.series else None
 
+    def get_first_chapter_info(self, obj):
+        first_published_chapter = obj.chapters.filter(published=True).order_by('created').first()
+        if first_published_chapter:
+            return {
+                'id': first_published_chapter.id,
+                'title': first_published_chapter.title
+            }
+        else:
+            return {'error': 'No published chapters are available for this book.'}
+
+    def get_illustrations(self, obj):
+        illustrations = obj.illustrations.all()[:5]
+        return IllustrationShortSerializer(illustrations, many=True, context=self.context).data
 
     class Meta:
         model = Book
-        fields = ['id', 'name', 'genre', 'subgenres', 'author', 'coverpage', 'views_count', 'volume_number', 'last_modified', 'first_chapter_info',
-                  'is_adult', 'series_name', 'book_type', 'display_price', 'upvotes', 'downvotes', 'author_profile_img', 'author_followers_count',
-                  'rating', 'user_vote']
+        fields = [
+            'id', 'name', 'genre', 'subgenres', 'author', 'coverpage', 'views_count', 'volume_number',
+            'last_modified', 'first_chapter_info', 'is_adult', 'series_name', 'book_type', 'display_price',
+            'upvotes', 'downvotes', 'author_profile_img', 'author_followers_count', 'rating', 'user_vote',
+            'illustrations', 'total_chapters', 'total_pages', 'description', 'formatted_last_modified'
+        ]
+
+
+class MainPageSerializer(serializers.ModelSerializer):
+    author = serializers.StringRelatedField()
+    genre = serializers.SlugRelatedField(
+        slug_field='name',
+        queryset=Genre.objects.all()
+    )
+    subgenres = serializers.StringRelatedField(many=True)
+    user_vote = serializers.SerializerMethodField()
+    rating = serializers.IntegerField(read_only=True)
+    author_profile_img = serializers.SerializerMethodField()
+    illustrations = serializers.SerializerMethodField()
+
+    def get_author_profile_img(self, obj):
+        request = self.context.get('request')
+        if obj.author.profile.profileimg and request:
+            return request.build_absolute_uri(obj.author.profile.profileimg.url)
+        return None
+
+    def get_user_vote(self, obj):
+        user = self.context['request'].user
+        if user.is_authenticated:
+            vote = obj.votes.filter(user=user).first()
+            if vote:
+                return vote.value
+        return 0
+
+    def get_illustrations(self, obj):
+        # Получаем до 5 иллюстраций
+        illustrations = obj.illustrations.all()[:5]
+        return IllustrationShortSerializer(illustrations, many=True, context=self.context).data
+
+    class Meta:
+        model = Book
+        fields = ['id', 'name', 'genre', 'subgenres', 'author', 'coverpage', 'views_count', 'volume_number',
+                  'last_modified', 'is_adult', 'author_profile_img', 'rating', 'user_vote', 'illustrations']
+
+
+class ReccomendationSerializer(serializers.ModelSerializer):
+    author = serializers.StringRelatedField()
+    genre = serializers.SlugRelatedField(
+        slug_field='name',
+        queryset=Genre.objects.all()
+    )
+    subgenres = serializers.StringRelatedField(many=True)
+    author_profile_img = serializers.SerializerMethodField()
+
+    def get_author_profile_img(self, obj):
+        request = self.context.get('request')
+        if obj.author.profile.profileimg and request:
+            return request.build_absolute_uri(obj.author.profile.profileimg.url)
+        return None
+
+    class Meta:
+        model = Book
+        fields = ['id', 'name', 'genre', 'subgenres', 'author', 'coverpage', 'views_count', 'volume_number',
+                  'last_modified', 'author_profile_img']
 
 
 class BookInfoSerializer(serializers.ModelSerializer):         # Book_Detail/Info
@@ -175,7 +259,6 @@ class CommentSerializer(serializers.ModelSerializer):
             profileimg_url = obj.user.profile.profileimg.url
             return request.build_absolute_uri(profileimg_url)
         return None
-
 
     def get_username(self, obj):
         return obj.user.username
@@ -239,7 +322,7 @@ class SeriesSerializer(serializers.ModelSerializer):
 
 class BookViewSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source='book.author')
-    book_name = serializers.CharField(source='book.name')
+    name = serializers.CharField(source='book.name')
     series_name = serializers.CharField(source='book.series.name', default='No Series')
     volume_number = serializers.IntegerField(source='book.volume_number')
     last_modified = serializers.DateTimeField(source='book.last_modified')
@@ -259,7 +342,7 @@ class BookViewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BookView
-        fields = ['author_name', 'book_name', 'series_name', 'volume_number', 'last_modified', 'views_count', 'coverpage', 'upvotes', 'description']
+        fields = ['author_name', 'name', 'series_name', 'volume_number', 'last_modified', 'views_count', 'coverpage', 'upvotes', 'description']
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -506,13 +589,13 @@ class StudioCommentSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source='user.username')
     author_profile_img = serializers.SerializerMethodField()
     book_coverpage = serializers.SerializerMethodField()
-    book_name = serializers.CharField(source='book.name')
+    name = serializers.CharField(source='book.name')
     formatted_timestamp = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
         fields = ('id', 'author_name', 'author_profile_img', 'text', 'rating', 'formatted_timestamp', 'book_coverpage',
-                  'book_name', 'replies', 'replies_count')
+                  'name', 'replies', 'replies_count')
 
     def get_author_profile_img(self, obj):
         request = self.context.get('request')

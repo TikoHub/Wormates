@@ -27,6 +27,8 @@ urlpatterns = [
         path('book_detail/<int:book_id>/reviews/<int:review_id>/like/', LikeReviewView.as_view(), name='like_review'),
       #  path('api/book_detail/<int:book_id>/illustrations/<int:illustration_id>/', IllustrationView.as_view(), name='update_illustration'),
 
+        path('book_detail/<int:book_id>/reccomendation/', SimilarBooksAPIView.as_view(), name='Similar book recomendation'),
+
 
         path('book/<int:book_id>/chapters/', ChapterContentView.as_view(), name='chapter_content'), # Отдел Глав для писателя
         path('book/<int:book_id>/chapter_side/', ChapterListView.as_view(), name='chapter-list'), # Менюшка слева для выбора главы или добавления

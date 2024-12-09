@@ -55,7 +55,7 @@ class InfiniteScrollPagination(LimitOffsetPagination):
 
 
 class BooksListAPIView(generics.ListAPIView):
-    serializer_class = BookSerializer
+    serializer_class = MainPageSerializer
     pagination_class = InfiniteScrollPagination
 
     def get_queryset(self):
@@ -323,6 +323,85 @@ class BookSearch(ListView):
         return context
 
 
+class SimilarBooksAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, book_id):
+        book = get_object_or_404(Book, id=book_id)
+        main_genre = book.genre
+        subgenres = set(book.subgenres.all())
+
+        recommended = []
+
+        # Проверка на следующую/предыдущую книгу из серии
+        if book.series:
+            next_book = Book.objects.filter(series=book.series, volume_number=book.volume_number + 1).first()
+            if next_book:
+                recommended.append(next_book)
+            else:
+                if book.volume_number > 1:
+                    prev_book = Book.objects.filter(series=book.series, volume_number=book.volume_number - 1).first()
+                    if prev_book:
+                        recommended.append(prev_book)
+
+        # Основной набор - книги того же жанра, исключая текущую и книги из серии (кроме уже добавленных)
+        base_queryset = Book.objects.filter(genre=main_genre).exclude(id=book.id)
+        if book.series:
+            base_queryset = base_queryset.exclude(series=book.series)
+
+        # Предварительно подгружаем subgenres и views_count (если views_count у вас отдельным образом)
+        other_books = list(base_queryset.prefetch_related('subgenres'))
+
+        book_scores = []
+        for candidate in other_books:
+            candidate_subgenres = set(candidate.subgenres.all())
+            intersection_count = len(subgenres.intersection(candidate_subgenres))
+
+            # Рассчёт очков
+            # 10 очков за совпадение главного жанра (у нас уже гарантированно совпадает, т.к. filter по genre)
+            points = 10 + (2 * intersection_count)
+
+            # Сохраняем (книга, очки)
+            book_scores.append((candidate, points))
+
+        # Сортируем по points убыванию, при равенстве - по views_count убыванию
+        # Предполагается, что у модели Book есть поле views_count
+        # Если его нет, используйте другое поле, или не сортируйте по нему.
+        book_scores.sort(key=lambda x: (x[1], x[0].views_count), reverse=True)
+
+        max_recs = 5
+        already_added = len(recommended)
+        needed = max_recs - already_added
+
+        # Берем top 'needed' книг из book_scores
+        chosen = [item[0] for item in book_scores[:needed]]
+
+        final_recommendations = recommended + chosen
+
+        # Проверяем, набрали ли мы 5 рекомендаций
+        # Если меньше 5 (например, книг в этом жанре мало),
+        # можно сделать fallback: взять оставшиеся книги (даже с 0 очков), или не брать.
+        # В данном примере, если мало книг по жанру, просто берем что есть.
+        # Если хотим строго 5, то можем дополнить другими книгами (не из того же жанра)
+        # Но этого вы не просили. Если надо - можно реализовать.
+
+        if len(final_recommendations) < 5:
+            # Если хотим строго 5, добавим любые книги из базы, исключая текущую
+            # и из серии, если возможно. Это fallback
+            fallback_needed = 5 - len(final_recommendations)
+            fallback_qs = Book.objects.exclude(id=book.id)
+            if book.series:
+                fallback_qs = fallback_qs.exclude(series=book.series)
+            # Исключаем уже выбранные
+            fallback_ids = [b.id for b in final_recommendations]
+            fallback_qs = fallback_qs.exclude(id__in=fallback_ids)
+            fallback_books = list(fallback_qs[:fallback_needed])
+            final_recommendations += fallback_books
+
+        serializer = ReccomendationSerializer(final_recommendations, many=True, context={'request': request})
+        return Response(serializer.data)
+
+
 class StudioWelcomeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -397,7 +476,20 @@ class StudioSeriesAPIView(APIView):
         old_series = book.series
         serializer = StudioBookSerializer(book, data=request.data, partial=True)
         if serializer.is_valid():
+            # Проверяем, передана ли новая серия в запросе
+            if 'series' in serializer.validated_data:
+                new_series = serializer.validated_data['series']
+                if new_series is not None:
+                    # Проверяем, принадлежит ли серия текущему пользователю
+                    if new_series.author != request.user:
+                        return Response(
+                            {"error": "You do not have permission to add this book to the selected series."},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
+            # Если проверка пройдена - сохраняем изменения
             serializer.save()
+
+            # Если изменились 'volume_number' или 'series', вызываем обновление номеров томов
             if 'volume_number' in serializer.validated_data or 'series' in serializer.validated_data:
                 self.update_volume_numbers(book, old_series=old_series)
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1994,7 +2086,7 @@ def parse_epub_and_create_chapters(file_path, book):
                             text = element.get_text(strip=True)
                             if text:
                                 content_parts.append(text)
-                    content = '\n\n'.join(content_parts)
+                    content = '<br/>'.join(content_parts)
                 else:
                     content = ""
 

@@ -3,7 +3,7 @@ from . import views
 from .views import (CustomUserLoginView, ProfileAPIView, RegisterView, PrivacySettingsAPIView, \
                     PasswordChangeRequestView, PasswordChangeVerificationView, NotificationSettingsAPIView, \
                     AddToLibraryView, WalletBalanceView, DepositView, TransactionHistoryView,
-                    UpdateNotificationSettingsView, PersonalReaderSettingsView,  \
+                    UpdateNotificationSettingsView, PersonalReaderSettingsView, AcceptTOSView, \
                     UserNotificationsAPIView, FollowView, UserNotificationsAPIView, TokenCheckView, \
                     VerifyEmailCodeView, ResendVerificationCodeView, UserProfileSettingsAPIView, UpdateReadingProgressView, \
                     UserMainPageSettingsView
@@ -26,6 +26,7 @@ urlpatterns = [
         path('register_verification/', VerifyEmailCodeView.as_view(), name='verify_registration'), #Подтверждение регистрации (Код)
         path('resend-code/', ResendVerificationCodeView.as_view(), name='resend-code'),
         path('login/', CustomUserLoginView.as_view(), name='custom_user_login'), # Логин
+        path('accept_tos/', AcceptTOSView.as_view(), name='accept-tos'),
         path('drf-auth/', include('rest_framework.urls')), # Логин для меня, не используется в проекте
         path('social-auth/', include('social_django.urls', namespace='social')),       #Пока сюда смотри
         path('auth/', include('djoser.urls')),

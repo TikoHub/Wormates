@@ -162,6 +162,14 @@ class LibraryBookSerializer(serializers.ModelSerializer):
     subgenres = serializers.StringRelatedField(many=True)
     upvotes = serializers.SerializerMethodField()
     downvotes = serializers.SerializerMethodField()
+    view_set = serializers.SerializerMethodField()
+
+    def get_view_set(self, obj):
+        # Получаем library из контекста
+        library = self.context.get('library', None)
+        if library:
+            return library.view_set
+        return False
 
     def get_upvotes(self, obj):
         return obj.upvote_count()
@@ -180,7 +188,8 @@ class LibraryBookSerializer(serializers.ModelSerializer):
             'subgenres',
             'volume_number',
             'upvotes',
-            'downvotes'
+            'downvotes',
+            'view_set'
         ]
 
 
@@ -225,17 +234,13 @@ class ParentCommentSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):
     parent_comment = ParentCommentSerializer(read_only=True)
     replies = serializers.SerializerMethodField()
-    book_name = serializers.SerializerMethodField()
+    name = serializers.CharField(source='book.name', read_only=True)
     formatted_timestamp = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['id', 'book', 'book_name', 'text', 'formatted_timestamp', 'parent_comment', 'replies']
+        fields = ['id', 'book', 'name', 'text', 'formatted_timestamp', 'parent_comment', 'replies']
         # Во фронте добавить типа, if parent_comment is null : use book
-
-    def get_book_name(self, obj):
-        # Return the name of the book associated with this comment
-        return obj.book.name if obj.book else None
 
     def get_formatted_timestamp(self, obj):
         return obj.timestamp.strftime('%m/%d/%Y %H:%M')  # Formats the timestamp
@@ -433,7 +438,7 @@ class PasswordChangeRequestSerializer(serializers.Serializer):
 
 class NotificationSerializer(serializers.ModelSerializer):
     formatted_timestamp = serializers.SerializerMethodField()
-    book_id = serializers.IntegerField(source='book.id', read_only=True)
+    book_name = serializers.CharField(source='book.name', read_only=True)
     message = serializers.CharField(read_only=True)
 
     def get_formatted_timestamp(self, obj):
@@ -459,7 +464,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'recipient', 'sender', 'notification_type', 'read', 'formatted_timestamp',
-                  'chapter_title', 'message', 'book_id']
+                  'chapter_title', 'message', 'book_name']
 
 
 class NotificationSettingSerializer(serializers.ModelSerializer):

@@ -33,7 +33,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_decode
 
 from .models import Achievement, Notification, Conversation, Message, Profile, NotificationSettings, \
-    WebPageSettings, Library, EmailVerification, Wallet, StripeCustomer, PersonalReaderSettings, \
+    WebPageSettings, Library, Wallet, StripeCustomer, PersonalReaderSettings, \
     VerificationCode, WalletTransaction, ReadingProgress, UserMainPageSettings, PasswordChangeRequest, \
     UserBookChapterNotification
 
@@ -134,12 +134,23 @@ class CustomUserLoginView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        email = serializer.validated_data['email'].lower()  # Преобразование email в нижний регистр
+        email = serializer.validated_data['email'].lower()
         password = serializer.validated_data['password']
+        # Пробуем аутентифицировать по email как username
         user = authenticate(request, username=email, password=password)
 
         if user is not None:
-            # Reset login attempt count on successful login
+            # Если пользователь существует
+            if not user.is_active:
+                # Пользователь ещё не подтвердил email
+                # Возвращаем ответ, сигнализирующий о необходимости ввода кода
+                return Response({
+                    'error': 'Your account is not active. Please verify your email.',
+                    'requires_verification': True,
+                    'email': user.email
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # Если пользователь активен
             request.session['login_attempts'] = 0
             token_serializer_data = {'username': email, 'password': password}
             token_serializer = MyTokenObtainPairSerializer(data=token_serializer_data)
@@ -149,10 +160,8 @@ class CustomUserLoginView(APIView):
             else:
                 return Response(token_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         else:
-            # Increment login attempt count
+            # Неверный пароль/пользователь
             request.session['login_attempts'] = request.session.get('login_attempts', 0) + 1
-
-            # Check if captcha is required
             if request.session['login_attempts'] > 1:
                 return Response({'error': 'Invalid email or password. Please complete the captcha.'}, status=status.HTTP_400_BAD_REQUEST)
             else:
@@ -185,6 +194,19 @@ def forgot_password(request):
     send_verification_email(user, code)
 
     return Response({"message": "Verification code sent to your email."})
+
+
+class AcceptTOSView(APIView):  # Окно согласия
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile = request.user.profile
+        if profile.tos_accepted:
+            return Response({'message': 'You have already accepted the Terms of Service.'}, status=200)
+
+        profile.tos_accepted = True
+        profile.save()
+        return Response({'message': 'Terms of Service accepted successfully.'}, status=200)
 
 
 @api_view(['GET'])
@@ -345,31 +367,49 @@ def get_library_content(request, username):
     except (User.DoesNotExist, Library.DoesNotExist):
         return Response({'error': 'User or library does not exist.'}, status=404)
 
-    # Check library visibility
+    # Проверяем видимость библиотеки
     if profile.library_visibility == 'private':
         if request.user != user:
             return Response({'error': 'This library is private.'}, status=403)
     elif profile.library_visibility == 'followers':
+        # Проверяем, является ли запросивший подписчиком
+        # (здесь предполагается наличие связки followers)
         if request.user != user and not user.followers.filter(id=request.user.id).exists():
             return Response({'error': 'This library is visible only to followers.'}, status=403)
 
-    filter_by = request.query_params.get('filter_by')
+    # Получаем все наборы книг
+    reading = library.reading_books.all()
+    liked = library.liked_books.all()
+    wish_list = library.wish_list_books.all()
+    favorites = library.favorites_books.all()
+    finished = library.finished_books.all()
+    all_books = library.get_all_books()
 
-    if filter_by == 'reading':
-        books_qs = library.reading_books.all()
-    elif filter_by == 'liked':
-        books_qs = library.liked_books.all()
-    elif filter_by == 'wish_list':
-        books_qs = library.wish_list_books.all()
-    elif filter_by == 'favorites':
-        books_qs = library.favorites_books.all()
-    elif filter_by == 'finished':
-        books_qs = library.finished_books.all()
-    else:
-        books_qs = library.get_all_books()
+    # Передаём library в контекст сериализатора
+    serializer_context = {
+        'request': request,
+        'library': library,
+    }
 
-    books_serializer = LibraryBookSerializer(books_qs, many=True, context={'request': request})
-    return Response(books_serializer.data)
+    reading_data = LibraryBookSerializer(reading, many=True, context=serializer_context).data
+    liked_data = LibraryBookSerializer(liked, many=True, context=serializer_context).data
+    wish_list_data = LibraryBookSerializer(wish_list, many=True, context=serializer_context).data
+    favorites_data = LibraryBookSerializer(favorites, many=True, context=serializer_context).data
+    finished_data = LibraryBookSerializer(finished, many=True, context=serializer_context).data
+    all_data = LibraryBookSerializer(all_books, many=True, context=serializer_context).data
+
+    response_data = {
+        'library_visibility': profile.library_visibility,
+        'view_set': library.view_set,  # Можно также вернуть на верхнем уровне
+        'reading': reading_data,
+        'liked': liked_data,
+        'wish_list': wish_list_data,
+        'favorites': favorites_data,
+        'finished': finished_data,
+        'all': all_data
+    }
+
+    return Response(response_data)
 
 
 @login_required(login_url='signin')

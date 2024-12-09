@@ -110,6 +110,10 @@ class UserBookChapterNotification(models.Model):
 
 
 class Profile(models.Model):
+    TIER_CHOICES = (
+        ('normal', 'Normal'),
+    )
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     about = models.CharField(max_length=500, blank=True)
     profileimg = models.ImageField(upload_to='profile_images', default='blank-profile-picture.png')
@@ -119,6 +123,7 @@ class Profile(models.Model):
     auto_add_reading = models.BooleanField(default=True)
     description = models.CharField(max_length=1000, blank=True, null=True) # Не уверен что мне этот метод нравится
     record_history = models.BooleanField(default=True)
+    tos_accepted = models.BooleanField(default=False)
     banner_image = models.ImageField(
         upload_to='banner_images',
         default='default_banner.png',
@@ -134,6 +139,11 @@ class Profile(models.Model):
         max_length=10,
         choices=LIBRARY_VISIBILITY_CHOICES,
         default='everyone'
+    )
+    tier = models.CharField(
+        max_length=15,
+        choices=TIER_CHOICES,
+        default='normal'
     )
 
     def unread_notification_count(self):
@@ -159,6 +169,8 @@ class Library(models.Model):
     favorites_books = models.ManyToManyField('store.Book', related_name='favorites_users', blank=True)
     finished_books = models.ManyToManyField('store.Book', related_name='finished_users', blank=True)
     purchased_books = models.ManyToManyField('store.Book', related_name='purchased_by_users', through='PurchasedBook', blank=True)
+
+    view_set = models.BooleanField(default=False) #Отображение в кол-ве книг
 
     def __str__(self):
         return f"Library - {self.user.username}"
